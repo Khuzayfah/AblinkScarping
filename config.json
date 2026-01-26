@@ -1,0 +1,46 @@
+{
+  "scraper_settings": {
+    "headless": false,
+    "timeout": 30,
+    "delay": 3,
+    "output_folder": "daily_reports",
+    "save_excel": true,
+    "save_csv": true,
+    "save_html": true
+  },
+  
+  "automation": {
+    "enabled": true,
+    "schedule_time": "09:00",
+    "schedule_frequency": "daily"
+  },
+  
+  "target_urls": {
+    "depreciation_table": [
+      "https://www.sgcarmart.com/new_cars/newcars_depreciation.php",
+      "https://www.sgcarmart.com/depreciation.php"
+    ],
+    "custom_url": ""
+  },
+  
+  "data_processing": {
+    "clean_currency_symbols": true,
+    "format_numbers": true,
+    "add_timestamp": true,
+    "remove_empty_rows": true
+  },
+  
+  "output_settings": {
+    "filename_prefix": "depreciation",
+    "date_format": "%Y%m%d_%H%M%S",
+    "keep_latest_only": false,
+    "max_files_to_keep": 30
+  },
+  
+  "notification": {
+    "enabled": false,
+    "email": "",
+    "on_success": true,
+    "on_failure": true
+  }
+}

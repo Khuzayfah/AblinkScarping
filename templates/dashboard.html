@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ablink Dashboard - SGCarmart Scraper</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 25px 30px;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+        
+        .header .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            background: #f5f7fa;
+            border-bottom: 2px solid #ddd;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .tab:hover {
+            background: #e8eaf0;
+        }
+        
+        .tab.active {
+            background: white;
+            border-bottom: 3px solid #667eea;
+            color: #667eea;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        
+        .stat-card .label {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .chart-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .chart-card img {
+            width: 100%;
+            height: auto;
+        }
+        
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: #00D2FF;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #FF6B6B;
+            color: white;
+        }
+        
+        .history-timeline {
+            margin-top: 20px;
+        }
+        
+        .history-item {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+            border-radius: 5px;
+        }
+        
+        .history-date {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        
+        .history-stats {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        tbody tr:hover {
+            background: #f5f7fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Ablink Dashboard</h1>
+            <p class="subtitle">SGCarmart Scraper | By Oneiros Indonesia</p>
+        </div>
+        
+        <div class="nav-tabs">
+            <div class="tab active" onclick="showTab('overview')">📈 Overview</div>
+            <div class="tab" onclick="showTab('charts')">📊 Charts</div>
+            <div class="tab" onclick="showTab('data')">📋 Data Table</div>
+            <div class="tab" onclick="showTab('history')">📅 History</div>
+        </div>
+        
+        <div class="content">
+            <!-- Overview Tab -->
+            <div class="tab-content active" id="overview">
+                <div class="export-buttons">
+                    <a href="/export/csv" class="btn btn-success">📄 Export CSV</a>
+                    <a href="/export/excel" class="btn btn-primary">📊 Export Excel</a>
+                    <a href="/export/pdf" class="btn btn-danger">📕 Export PDF</a>
+                </div>
+                
+                {% if data %}
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="label">Total Vehicles</div>
+                        <div class="value">{{ data|length }}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Categories</div>
+                        <div class="value">4</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Total Units</div>
+                        <div class="value">{{ data|sum(attribute='TOTAL UNITS')|int }}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Last Updated</div>
+                        <div class="value" style="font-size:18px;">Today</div>
+                    </div>
+                </div>
+                
+                <h2 style="margin-bottom: 15px;">Quick Summary</h2>
+                <p>Track vehicle depreciation data across categories. Export data in multiple formats for analysis.</p>
+                {% else %}
+                <p>No data available. Please run scraper first.</p>
+                {% endif %}
+            </div>
+            
+            <!-- Charts Tab -->
+            <div class="tab-content" id="charts">
+                <h2 style="margin-bottom: 20px;">📊 Visual Analytics</h2>
+                {% if charts %}
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>Category Distribution</h3>
+                        <img src="data:image/png;base64,{{ charts.category_pie }}" alt="Category Pie Chart">
+                    </div>
+                    <div class="chart-card">
+                        <h3>Units by Category</h3>
+                        <img src="data:image/png;base64,{{ charts.units_bar }}" alt="Units Bar Chart">
+                    </div>
+                </div>
+                <div class="chart-card">
+                    <h3>Performance Analysis (DIFF)</h3>
+                    <img src="data:image/png;base64,{{ charts.diff_bar }}" alt="DIFF Analysis">
+                </div>
+                {% else %}
+                <p>No charts available. Please load data first.</p>
+                {% endif %}
+            </div>
+            
+            <!-- Data Table Tab -->
+            <div class="tab-content" id="data">
+                <h2 style="margin-bottom: 15px;">📋 Complete Data Table</h2>
+                {% if data %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Vehicle</th>
+                            <th>Category</th>
+                            <th>Total Units</th>
+                            <th>Previous</th>
+                            <th>DIFF</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in data %}
+                        <tr>
+                            <td>{{ row.Vehicle }}</td>
+                            <td>{{ row.Category }}</td>
+                            <td>{{ row['TOTAL UNITS'] }}</td>
+                            <td>{{ row.Previous }}</td>
+                            <td style="color: {% if row.DIFF > 0 %}green{% elif row.DIFF < 0 %}red{% else %}black{% endif %}; font-weight: bold;">
+                                {{ row.DIFF }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p>No data available.</p>
+                {% endif %}
+            </div>
+            
+            <!-- History Tab -->
+            <div class="tab-content" id="history">
+                <h2 style="margin-bottom: 15px;">📅 Daily History</h2>
+                <div class="history-timeline">
+                    {% if history %}
+                        {% for date, stats in history.items()|reverse %}
+                        <div class="history-item">
+                            <div class="history-date">{{ date }}</div>
+                            <div class="history-stats">
+                                Vehicles: {{ stats.total_vehicles }} | 
+                                Total Units: {{ stats.total_units }} | 
+                                Categories: {{ stats.categories }}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <p>No history available yet. Data will appear here after daily updates.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+    </script>
+</body>
+</html>

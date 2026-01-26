@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+
+# Virtual Environment
+env/
+venv/
+.venv
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+daily_reports/
+*.bat
+*.log
+
+# Keep requirements.txt but ignore other .txt
+*.txt
+!requirements.txt
+
+# Environment
+.env

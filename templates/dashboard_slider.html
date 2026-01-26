@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ablink SGCarmart Scraper - Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #F5F7FA 0%, #E8ECF1 100%);
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #8B9DC3 0%, #6B7FA8 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .controls {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .btn {
+            padding: 12px 28px;
+            border: none;
+            border-radius: 25px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #8B9DC3 0%, #6B7FA8 100%);
+            color: white;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #7FA87D 0%, #5F8A5D 100%);
+            color: white;
+        }
+        
+        .btn-info {
+            background: linear-gradient(135deg, #7DA8A0 0%, #5D8A82 100%);
+            color: white;
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, #D6A87D 0%, #B68A5D 100%);
+            color: white;
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .history-slider {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .slider-header h2 {
+            font-size: 20px;
+            color: #34495E;
+        }
+        
+        .date-display {
+            font-size: 24px;
+            font-weight: 700;
+            color: #6B7FA8;
+        }
+        
+        .slider-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 30px;
+            margin-bottom: 20px;
+        }
+        
+        .slider-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #8B9DC3 0%, #6B7FA8 100%);
+            color: white;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .slider-btn:hover:not(:disabled) {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .slider-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        
+        .date-info {
+            text-align: center;
+            min-width: 250px;
+        }
+        
+        .date-label {
+            font-size: 12px;
+            color: #7F8C8D;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+        
+        .report-view {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            min-height: 400px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #95A5A6;
+            font-size: 18px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #8B9DC3;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            margin-top: 20px;
+        }
+        
+        th {
+            background: linear-gradient(135deg, #8B9DC3 0%, #6B7FA8 100%);
+            color: white;
+            padding: 12px 8px;
+            text-align: center;
+            font-weight: 700;
+            font-size: 10px;
+            border: 1px solid #7A8DAF;
+        }
+        
+        td {
+            padding: 8px;
+            border: 1px solid #E8E8E6;
+            text-align: center;
+            font-size: 11px;
+        }
+        
+        td:first-child {
+            text-align: left;
+            font-weight: 600;
+            color: #2C3E50;
+        }
+        
+        .category-row {
+            background: #F5E6D3;
+            font-weight: 700;
+            color: #34495E;
+            text-align: left !important;
+            padding: 10px !important;
+        }
+        
+        .price-cell {
+            background: #F8F9FB;
+            color: #2C5F8D;
+            font-weight: 700;
+        }
+        
+        .units-cell {
+            color: #5A6C7D;
+            font-weight: 600;
+        }
+        
+        .total-cell {
+            background: #FFF5E6;
+            color: #D68910;
+            font-weight: 700;
+            font-size: 12px;
+        }
+        
+        .diff-pos {
+            background: #DFF0D8;
+            color: #2D7A3E;
+            font-weight: 700;
+        }
+        
+        .diff-neg {
+            background: #F8DEDC;
+            color: #B94A48;
+            font-weight: 700;
+        }
+        
+        .status-message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 25px;
+            background: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1000;
+            display: none;
+            font-weight: 600;
+        }
+        
+        .status-success {
+            border-left: 4px solid #7FA87D;
+            color: #2D7A3E;
+        }
+        
+        .status-error {
+            border-left: 4px solid #B94A48;
+            color: #B94A48;
+        }
+        
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+            }
+            
+            .slider-controls {
+                flex-direction: column;
+                gap: 15px;
+            }
+            
+            table {
+                font-size: 9px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚗 Ablink SGCarmart Scraper</h1>
+            <p>by Oneiros Indonesia | Daily Depreciation & Units Tracker</p>
+        </div>
+        
+        <div class="controls">
+            <div>
+                <button class="btn btn-primary" onclick="manualScrape()">
+                    🔄 Scrape Now (Manual)
+                </button>
+                <span style="margin-left: 15px; color: #7F8C8D; font-size: 13px;">
+                    Auto scraping: Daily at 9:00 AM
+                </span>
+            </div>
+            
+            <div class="export-buttons">
+                <button class="btn btn-success" onclick="exportData('csv')">
+                    📄 CSV
+                </button>
+                <button class="btn btn-info" onclick="exportData('excel')">
+                    📊 Excel
+                </button>
+                <button class="btn btn-warning" onclick="exportData('pdf')">
+                    📕 PDF
+                </button>
+            </div>
+        </div>
+        
+        <div class="history-slider">
+            <div class="slider-header">
+                <h2>📅 History</h2>
+                <span id="dateCount" style="color: #95A5A6; font-size: 14px;">Loading...</span>
+            </div>
+            
+            <div class="slider-controls">
+                <button class="slider-btn" id="prevBtn" onclick="previousDate()" disabled>
+                    ◀
+                </button>
+                
+                <div class="date-info">
+                    <div class="date-label">Selected Date</div>
+                    <div class="date-display" id="currentDate">-</div>
+                </div>
+                
+                <button class="slider-btn" id="nextBtn" onclick="nextDate()" disabled>
+                    ▶
+                </button>
+            </div>
+            
+            <div style="text-align: center; color: #95A5A6; font-size: 13px; margin-top: 10px;">
+                Use ◀ ▶ buttons to navigate through history
+            </div>
+        </div>
+        
+        <div class="report-view" id="reportView">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Loading data...</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="status-message" id="statusMessage"></div>
+    
+    <script>
+        let historyDates = [];
+        let currentIndex = 0;
+        let currentDate = null;
+        
+        // Load history on page load
+        window.onload = function() {
+            loadHistory();
+        };
+        
+        function loadHistory() {
+            fetch('/api/history')
+                .then(res => res.json())
+                .then(data => {
+                    historyDates = data.dates;
+                    
+                    if (historyDates.length > 0) {
+                        currentIndex = 0;
+                        currentDate = historyDates[0];
+                        updateDateDisplay();
+                        loadDate(currentDate);
+                        
+                        document.getElementById('dateCount').textContent = 
+                            `${historyDates.length} date${historyDates.length > 1 ? 's' : ''} available`;
+                    } else {
+                        document.getElementById('reportView').innerHTML = 
+                            '<div class="loading"><p>No data yet. Click "Scrape Now" to start.</p></div>';
+                        document.getElementById('dateCount').textContent = 'No data yet';
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading history:', err);
+                    showStatus('Error loading history', 'error');
+                });
+        }
+        
+        function updateDateDisplay() {
+            document.getElementById('currentDate').textContent = 
+                formatDate(currentDate);
+            
+            // Update buttons
+            document.getElementById('prevBtn').disabled = (currentIndex >= historyDates.length - 1);
+            document.getElementById('nextBtn').disabled = (currentIndex <= 0);
+        }
+        
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            const options = { year: 'numeric', month: 'long', day: 'numeric' };
+            return date.toLocaleDateString('en-US', options);
+        }
+        
+        function previousDate() {
+            if (currentIndex < historyDates.length - 1) {
+                currentIndex++;
+                currentDate = historyDates[currentIndex];
+                updateDateDisplay();
+                loadDate(currentDate);
+            }
+        }
+        
+        function nextDate() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                currentDate = historyDates[currentIndex];
+                updateDateDisplay();
+                loadDate(currentDate);
+            }
+        }
+        
+        function loadDate(date) {
+            document.getElementById('reportView').innerHTML = 
+                '<div class="loading"><div class="spinner"></div><p>Loading data...</p></div>';
+            
+            fetch(`/api/data/${date}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        renderTable(data);
+                    } else {
+                        document.getElementById('reportView').innerHTML = 
+                            '<div class="loading"><p>Error loading data</p></div>';
+                    }
+                })
+                .catch(err => {
+                    console.error('Error:', err);
+                    document.getElementById('reportView').innerHTML = 
+                        '<div class="loading"><p>Error loading data</p></div>';
+                });
+        }
+        
+        function renderTable(data) {
+            const summary = data.summary;
+            const rows = data.data;
+            
+            let html = `
+                <div style="margin-bottom: 20px; padding: 15px; background: #F8F9FB; border-radius: 8px;">
+                    <h3 style="color: #34495E; margin-bottom: 10px;">Summary</h3>
+                    <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+                        <div>
+                            <div style="font-size: 12px; color: #7F8C8D;">Date & Time</div>
+                            <div style="font-size: 16px; font-weight: 700; color: #2C3E50;">${data.datetime}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #7F8C8D;">Total Vehicles</div>
+                            <div style="font-size: 16px; font-weight: 700; color: #2C5F8D;">${summary.total_vehicles}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #7F8C8D;">Total Units</div>
+                            <div style="font-size: 16px; font-weight: 700; color: #D68910;">${summary.total_units}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #7F8C8D;">Categories</div>
+                            <div style="font-size: 16px; font-weight: 700; color: #7FA87D;">${summary.categories}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <table>
+                    <thead>
+                        <tr>
+                            <th>VEHICLE</th>
+                            <th colspan="2">2025</th>
+                            <th colspan="2">2024</th>
+                            <th colspan="2">2023</th>
+                            <th colspan="2">2022</th>
+                            <th colspan="2">2021</th>
+                            <th colspan="2">2020</th>
+                            <th colspan="2">2019</th>
+                            <th colspan="2">2018</th>
+                            <th colspan="2">2017</th>
+                            <th colspan="2">2016</th>
+                            <th colspan="2">2015</th>
+                            <th colspan="2">2014 & Older</th>
+                            <th>TOTAL<br>UNITS</th>
+                            <th>Previous</th>
+                            <th>DIFF</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            let currentCategory = '';
+            
+            rows.forEach(row => {
+                // Category header
+                if (row.Category !== currentCategory) {
+                    currentCategory = row.Category;
+                    html += `<tr><td colspan="28" class="category-row">${currentCategory}</td></tr>`;
+                }
+                
+                // Data row
+                html += '<tr>';
+                html += `<td>${row.Vehicle}</td>`;
+                
+                // Years
+                const years = ['2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018', '2017', '2016', '2015', '2014'];
+                years.forEach(year => {
+                    const price = row[`${year}_price`];
+                    const units = row[`${year}_units`];
+                    
+                    html += `<td class="price-cell">${price && price > 0 ? '$' + price.toLocaleString() : '-'}</td>`;
+                    html += `<td class="units-cell">${units && units > 0 ? units : '-'}</td>`;
+                });
+                
+                html += `<td class="total-cell">${row['TOTAL UNITS']}</td>`;
+                html += `<td>${row['Previous']}</td>`;
+                
+                const diff = row['DIFF'];
+                const diffClass = diff > 0 ? 'diff-pos' : diff < 0 ? 'diff-neg' : '';
+                const diffText = diff > 0 ? `+${diff}` : diff;
+                html += `<td class="${diffClass}">${diffText}</td>`;
+                
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            
+            document.getElementById('reportView').innerHTML = html;
+        }
+        
+        function manualScrape() {
+            showStatus('Scraping in progress...', 'success');
+            
+            fetch('/api/scrape', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        showStatus('Scraping completed!', 'success');
+                        loadHistory();
+                    } else {
+                        showStatus('Scraping failed', 'error');
+                    }
+                })
+                .catch(err => {
+                    console.error('Error:', err);
+                    showStatus('Scraping error', 'error');
+                });
+        }
+        
+        function exportData(format) {
+            if (!currentDate) {
+                showStatus('No date selected', 'error');
+                return;
+            }
+            
+            showStatus(`Exporting as ${format.toUpperCase()}...`, 'success');
+            
+            if (format === 'pdf') {
+                window.open(`/api/export/${currentDate}/${format}`, '_blank');
+            } else {
+                window.location.href = `/api/export/${currentDate}/${format}`;
+            }
+        }
+        
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.textContent = message;
+            statusEl.className = `status-message status-${type}`;
+            statusEl.style.display = 'block';
+            
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 3000);
+        }
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowLeft') {
+                previousDate();
+            } else if (e.key === 'ArrowRight') {
+                nextDate();
+            }
+        });
+    </script>
+</body>
+</html>
