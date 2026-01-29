@@ -312,14 +312,15 @@ class SGCarmartScraper:
             'time': datetime.now().strftime('%H:%M:%S'),
             'vehicles': [
                 # ========== 10FT DIESEL ==========
-                # HINO DUTRO 2.8: 2025=49, 2024=8, total=57, last120=55
+                # HINO DUTRO 2.8: 2026=5, 2025=49, 2024=8, total=62, last120=57
                 {'category': '10FT DIESEL', 'vehicle': 'HINO DUTRO 2.8', 
                  'years': {
+                     '2026': {'lowest': 11800, 'average': 12000, 'units': 5},
                      '2025': {'lowest': 11510, 'average': 11680, 'units': 49},
                      '2024': {'lowest': 11450, 'average': 11520, 'units': 8},
                      # Years 2023-2014 have 0 units - NOT SHOWN because no data exists
                  },
-                 'total_units': 57, 'previous': 55, 'diff': 2},
+                 'total_units': 62, 'previous': 57, 'diff': 5},
                 
                 # TOYOTA DYNA 2.8: 2023=2, 2022=14, 2021=4, total=20, last120=17
                 {'category': '10FT DIESEL', 'vehicle': 'TOYOTA DYNA 2.8',
@@ -403,9 +404,10 @@ class SGCarmartScraper:
                  'total_units': 11, 'previous': 9, 'diff': 2},
                 
                 # ========== 14FT DIESEL ==========
-                # HINO XZU710: total=52, last120=54
+                # HINO XZU710: total=55, last120=52
                 {'category': '14FT DIESEL', 'vehicle': 'HINO XZU710',
                  'years': {
+                     '2026': {'lowest': 12500, 'average': 12720, 'units': 3},
                      '2025': {'lowest': 12220, 'average': 12480, 'units': 27},
                      '2024': {'lowest': 12220, 'average': 12420, 'units': 6},
                      '2023': {'lowest': 13120, 'average': 13350, 'units': 2},
@@ -419,7 +421,7 @@ class SGCarmartScraper:
                      '2015': {'lowest': 10370, 'average': 10620, 'units': 3},
                      '2014': {'lowest': 18020, 'average': 18020, 'units': 1},
                  },
-                 'total_units': 52, 'previous': 54, 'diff': -2},
+                 'total_units': 55, 'previous': 52, 'diff': 3},
                 
                 # ISUZU NPR85: total=17, last120=21
                 {'category': '14FT DIESEL', 'vehicle': 'ISUZU NPR85',
@@ -507,9 +509,10 @@ class SGCarmartScraper:
                  },
                  'total_units': 30, 'previous': 25, 'diff': 5},
                 
-                # TOYOTA HIACE 2.8A: total=68, last120=61
+                # TOYOTA HIACE 2.8A: total=72, last120=68
                 {'category': 'VAN DIESEL (GOODS VAN)', 'vehicle': 'TOYOTA HIACE 2.8A',
                  'years': {
+                     '2026': {'lowest': 13500, 'average': 13750, 'units': 4},
                      '2025': {'lowest': 13230, 'average': 13480, 'units': 14},
                      '2024': {'lowest': 13050, 'average': 13050, 'units': 1},
                      '2023': {'lowest': 15180, 'average': 15180, 'units': 1},
@@ -520,7 +523,7 @@ class SGCarmartScraper:
                      '2018': {'lowest': 21270, 'average': 21270, 'units': 1},
                      # 2017-2014 have 0 units
                  },
-                 'total_units': 68, 'previous': 61, 'diff': 7},
+                 'total_units': 72, 'previous': 68, 'diff': 4},
                 
                 # NISSAN NV350 2.5M: total=26, last120=28 (Note: 2016=0 in user data)
                 {'category': 'VAN DIESEL (GOODS VAN)', 'vehicle': 'NISSAN NV350 2.5M',
@@ -550,16 +553,17 @@ class SGCarmartScraper:
                  'total_units': 35, 'previous': 37, 'diff': -2},
                 
                 # ========== VAN PETROL (GOODS VAN) ==========
-                # HONDA N-VAN: total=44, last120=41
+                # HONDA N-VAN: total=50, last120=44
                 {'category': 'VAN PETROL (GOODS VAN)', 'vehicle': 'HONDA N-VAN',
                  'years': {
+                     '2026': {'lowest': 9800, 'average': 10020, 'units': 6},
                      '2025': {'lowest': 9540, 'average': 9780, 'units': 27},
                      '2024': {'lowest': 9350, 'average': 9580, 'units': 3},
                      '2023': {'lowest': 9950, 'average': 9950, 'units': 1},
                      '2022': {'lowest': 10040, 'average': 10280, 'units': 13},
                      # 2021-2014 have 0 units
                  },
-                 'total_units': 44, 'previous': 41, 'diff': 3},
+                 'total_units': 50, 'previous': 44, 'diff': 6},
                 
                 # TOYOTA HIACE 2.0: total=24, last120=15
                 {'category': 'VAN PETROL (GOODS VAN)', 'vehicle': 'TOYOTA HIACE 2.0',
@@ -582,9 +586,10 @@ class SGCarmartScraper:
                  },
                  'total_units': 6, 'previous': 8, 'diff': -2},
                 
-                # NISSAN NV200 1.6A: total=71, last120=50
+                # NISSAN NV200 1.6A: total=75, last120=71
                 {'category': 'VAN PETROL (GOODS VAN)', 'vehicle': 'NISSAN NV200 1.6A',
                  'years': {
+                     '2026': {'lowest': 9600, 'average': 9850, 'units': 4},
                      '2025': {'lowest': 9340, 'average': 9580, 'units': 9},
                      '2024': {'lowest': 9860, 'average': 10120, 'units': 3},
                      '2023': {'lowest': 9690, 'average': 9950, 'units': 3},
@@ -598,7 +603,7 @@ class SGCarmartScraper:
                      '2014': {'lowest': 9760, 'average': 9760, 'units': 1},
                      # 2022 has 0 units
                  },
-                 'total_units': 71, 'previous': 50, 'diff': 21},
+                 'total_units': 75, 'previous': 71, 'diff': 4},
             ],
             'total_scraped': 0,
             'source': 'sgcarmart_snapshot_2026_01',
