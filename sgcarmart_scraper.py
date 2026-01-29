@@ -27,19 +27,19 @@ class SGCarmartScraper:
     # Vehicle categories to scrape
     CATEGORIES = {
         '10FT DIESEL': {
-            'url': 'https://www.sgcarmart.com/used_cars/listing.php?BRSR=0&RPG=60&AVL=2&VT=30&FRY=2010&TOY=2026',
+            'url': 'https://www.sgcarmart.com/used_cars/listing.php?BRSR=0&RPG=60&AVL=2&VT=30&FRY=2010&TOY=2027',
             'vehicles': ['HINO DUTRO', 'TOYOTA DYNA', 'NISSAN CABSTAR', 'MITSUBISHI FEA', 'ISUZU NHR', 'ISUZU NJR', 'KIA 2500']
         },
         '14FT DIESEL': {
-            'url': 'https://www.sgcarmart.com/used_cars/listing.php?BRSR=0&RPG=60&AVL=2&VT=31&FRY=2010&TOY=2026',
+            'url': 'https://www.sgcarmart.com/used_cars/listing.php?BRSR=0&RPG=60&AVL=2&VT=31&FRY=2010&TOY=2027',
             'vehicles': ['HINO XZU', 'ISUZU NPR', 'ISUZU NMR', 'ISUZU NNR', 'MITSUBISHI FEB']
         },
         'VAN DIESEL (GOODS VAN)': {
-            'url': 'https://www.sgcarmart.com/used_cars/listing.php?BRSR=0&RPG=60&AVL=2&VT=34&FRY=2010&TOY=2026&FUE=1',
+            'url': 'https://www.sgcarmart.com/used_cars/listing.php?BRSR=0&RPG=60&AVL=2&VT=34&FRY=2010&TOY=2027&FUE=1',
             'vehicles': ['TOYOTA HIACE', 'NISSAN NV350', 'NISSAN NV200']
         },
         'VAN PETROL (GOODS VAN)': {
-            'url': 'https://www.sgcarmart.com/used_cars/listing.php?BRSR=0&RPG=60&AVL=2&VT=34&FRY=2010&TOY=2026&FUE=2',
+            'url': 'https://www.sgcarmart.com/used_cars/listing.php?BRSR=0&RPG=60&AVL=2&VT=34&FRY=2010&TOY=2027&FUE=2',
             'vehicles': ['HONDA N-VAN', 'TOYOTA HIACE', 'NISSAN NV350', 'NISSAN NV200']
         }
     }
