@@ -31,3 +31,17 @@ daily_reports/
 
 # Environment
 .env
+
+# Data files (too large for git)
+data/history/
+uploads/
+*.xlsx
+*.xls
+*.csv
+!pricelist/PRICELIST_TEMPLATE.csv
+
+# Keep pricelist template but ignore uploaded files
+pricelist/*.xlsx
+pricelist/*.xls
+pricelist/*.csv
+!pricelist/PRICELIST_TEMPLATE.csv

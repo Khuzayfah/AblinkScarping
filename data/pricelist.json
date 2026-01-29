@@ -1,0 +1,213 @@
+{
+  "uploaded_at": "2026-01-29 09:49:31",
+  "filename": "PRICELIST_TEMPLATE.csv",
+  "vehicles": [
+    {
+      "vehicle": "Hino Dutro 150MT",
+      "category": "10FT DIESEL",
+      "registered_date": "30/12/2025",
+      "asking_price": 123800.0,
+      "coe_expiry": "29/12/2035",
+      "depreciation": 13755,
+      "registered_year": 2025
+    },
+    {
+      "vehicle": "Toyota Dyna 150 5MT",
+      "category": "10FT DIESEL",
+      "registered_date": "20/10/2022",
+      "asking_price": 89800.0,
+      "coe_expiry": "19/10/2032",
+      "depreciation": 14966,
+      "registered_year": 2022
+    },
+    {
+      "vehicle": "Toyota Dyna 150 5MT",
+      "category": "10FT DIESEL",
+      "registered_date": "30/09/2022",
+      "asking_price": 89800.0,
+      "coe_expiry": "29/09/2032",
+      "depreciation": 14966,
+      "registered_year": 2022
+    },
+    {
+      "vehicle": "Toyota Dyna 150 6AT",
+      "category": "10FT DIESEL",
+      "registered_date": "28/01/2022",
+      "asking_price": 81800.0,
+      "coe_expiry": "27/01/2032",
+      "depreciation": 13633,
+      "registered_year": 2022
+    },
+    {
+      "vehicle": "Toyota Dyna 150MT",
+      "category": "10FT DIESEL",
+      "registered_date": "26/01/2021",
+      "asking_price": 79800.0,
+      "coe_expiry": "25/01/2031",
+      "depreciation": 15960,
+      "registered_year": 2021
+    },
+    {
+      "vehicle": "Toyota Dyna 150MT",
+      "category": "10FT DIESEL",
+      "registered_date": "11/10/2020",
+      "asking_price": 75800.0,
+      "coe_expiry": "10/10/2030",
+      "depreciation": 18950,
+      "registered_year": 2020
+    },
+    {
+      "vehicle": "Nissan Cabstar",
+      "category": "10FT DIESEL",
+      "registered_date": "29/11/2017",
+      "asking_price": 23800.0,
+      "coe_expiry": "28/11/2027",
+      "depreciation": 23800,
+      "registered_year": 2017
+    },
+    {
+      "vehicle": "Isuzu NJR88 Auto",
+      "category": "10FT DIESEL",
+      "registered_date": "20/12/2021",
+      "asking_price": 67800.0,
+      "coe_expiry": "19/12/2031",
+      "depreciation": 13560,
+      "registered_year": 2021
+    },
+    {
+      "vehicle": "Mitsubishi FEA01 Auto",
+      "category": "10FT DIESEL",
+      "registered_date": "16/04/2021",
+      "asking_price": 60800.0,
+      "coe_expiry": "15/04/2031",
+      "depreciation": 12160,
+      "registered_year": 2021
+    },
+    {
+      "vehicle": "Mitsubishi FEA01 MT",
+      "category": "10FT DIESEL",
+      "registered_date": "21/08/2020",
+      "asking_price": 58800.0,
+      "coe_expiry": "20/08/2030",
+      "depreciation": 14700,
+      "registered_year": 2020
+    },
+    {
+      "vehicle": "Hino XZU710 MT",
+      "category": "14FT DIESEL",
+      "registered_date": "20/01/2016",
+      "asking_price": 51800.0,
+      "coe_expiry": "19/01/2031",
+      "depreciation": 10360,
+      "registered_year": 2016
+    },
+    {
+      "vehicle": "Mitsubishi FEB21 MT",
+      "category": "14FT DIESEL",
+      "registered_date": "20/04/2021",
+      "asking_price": 68800.0,
+      "coe_expiry": "19/04/2031",
+      "depreciation": 13760,
+      "registered_year": 2021
+    },
+    {
+      "vehicle": "Isuzu NPR85 MT",
+      "category": "14FT DIESEL",
+      "registered_date": "29/06/2022",
+      "asking_price": 91800.0,
+      "coe_expiry": "28/06/2032",
+      "depreciation": 15300,
+      "registered_year": 2022
+    },
+    {
+      "vehicle": "Isuzu NNR85 MT",
+      "category": "14FT DIESEL",
+      "registered_date": "27/09/2022",
+      "asking_price": 93800.0,
+      "coe_expiry": "26/09/2032",
+      "depreciation": 15633,
+      "registered_year": 2022
+    },
+    {
+      "vehicle": "Toyota Hiace 2.8A",
+      "category": "VAN DIESEL (GOODS VAN)",
+      "registered_date": "18/02/2021",
+      "asking_price": 77800.0,
+      "coe_expiry": "17/02/2031",
+      "depreciation": 15560,
+      "registered_year": 2021
+    },
+    {
+      "vehicle": "Toyota Hiace 3.0M",
+      "category": "VAN DIESEL (GOODS VAN)",
+      "registered_date": "14/02/2020",
+      "asking_price": 57800.0,
+      "coe_expiry": "13/02/2030",
+      "depreciation": 14450,
+      "registered_year": 2020
+    },
+    {
+      "vehicle": "Toyota Hiace 2.8A",
+      "category": "VAN DIESEL (GOODS VAN)",
+      "registered_date": "26/10/2018",
+      "asking_price": 46800.0,
+      "coe_expiry": "25/10/2028",
+      "depreciation": 23400,
+      "registered_year": 2018
+    },
+    {
+      "vehicle": "Nissan NV200 1.5M",
+      "category": "VAN DIESEL (GOODS VAN)",
+      "registered_date": "18/01/2019",
+      "asking_price": 30800.0,
+      "coe_expiry": "17/01/2029",
+      "depreciation": 10266,
+      "registered_year": 2019
+    },
+    {
+      "vehicle": "Honda N-Van",
+      "category": "VAN PETROL (GOODS VAN)",
+      "registered_date": "20/12/2024",
+      "asking_price": 84800.0,
+      "coe_expiry": "19/12/2034",
+      "depreciation": 10600,
+      "registered_year": 2024
+    },
+    {
+      "vehicle": "Honda N-Van",
+      "category": "VAN PETROL (GOODS VAN)",
+      "registered_date": "29/08/2024",
+      "asking_price": 82800.0,
+      "coe_expiry": "28/08/2034",
+      "depreciation": 10350,
+      "registered_year": 2024
+    },
+    {
+      "vehicle": "Toyota Hiace 2.0A",
+      "category": "VAN PETROL (GOODS VAN)",
+      "registered_date": "26/08/2021",
+      "asking_price": 66800.0,
+      "coe_expiry": "25/08/2031",
+      "depreciation": 13360,
+      "registered_year": 2021
+    },
+    {
+      "vehicle": "Nissan NV200 1.6A",
+      "category": "VAN PETROL (GOODS VAN)",
+      "registered_date": "07/04/2021",
+      "asking_price": 56800.0,
+      "coe_expiry": "06/04/2031",
+      "depreciation": 11360,
+      "registered_year": 2021
+    },
+    {
+      "vehicle": "Nissan NV200 1.6A",
+      "category": "VAN PETROL (GOODS VAN)",
+      "registered_date": "04/10/2020",
+      "asking_price": 52800.0,
+      "coe_expiry": "06/10/2030",
+      "depreciation": 13200,
+      "registered_year": 2020
+    }
+  ]
+}
