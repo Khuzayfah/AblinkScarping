@@ -105,13 +105,24 @@ def perform_scraping():
             use_sample = True
         
         # If scraping failed, use sample data directly
-        if use_sample or not data:
+        if use_sample or not data or not data.get('vehicles'):
             print("[INFO] Using SGCarmart sample data...")
-            scraper = SGCarmartScraper(headless=True)
-            data = scraper._get_sample_data()
-            data['source'] = 'sample_data'
+            try:
+                # Get sample data directly without creating scraper
+                from sgcarmart_scraper import SGCarmartScraper
+                scraper = SGCarmartScraper(headless=True)
+                data = scraper._get_sample_data()
+                if data:
+                    data['source'] = 'sample_data'
+                    print(f"[OK] Sample data loaded: {len(data.get('vehicles', []))} vehicles")
+            except Exception as sample_error:
+                print(f"[ERROR] Failed to load sample data: {sample_error}")
+                # Last resort: return error
+                scraping_status['is_scraping'] = False
+                scraping_status['last_status'] = f'Error: {str(sample_error)}'
+                return {'success': False, 'error': f'Failed to load data: {str(sample_error)}'}
         
-        if data:
+        if data and data.get('vehicles'):
             # Get previous data for diff calculation
             prev_data = history_manager.get_latest()
             if prev_data:
@@ -134,12 +145,55 @@ def perform_scraping():
                 'message': f'Data loaded successfully from {source_text}'
             }
         else:
+            # Last resort: try to get sample data one more time
+            print("[WARNING] Data is empty, trying sample data as last resort...")
+            try:
+                from sgcarmart_scraper import SGCarmartScraper
+                scraper = SGCarmartScraper(headless=True)
+                sample_data = scraper._get_sample_data()
+                if sample_data and sample_data.get('vehicles'):
+                    saved_date = history_manager.save_data(sample_data)
+                    scraping_status['last_scrape'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    scraping_status['last_status'] = f'Success - {len(sample_data.get("vehicles", []))} vehicles (sample data)'
+                    return {
+                        'success': True,
+                        'date': saved_date,
+                        'vehicles_count': len(sample_data.get('vehicles', [])),
+                        'source': 'sample data',
+                        'message': 'Data loaded from sample data'
+                    }
+            except Exception as final_error:
+                print(f"[ERROR] Final fallback failed: {final_error}")
+            
             scraping_status['last_status'] = 'Failed - No data available'
             return {'success': False, 'error': 'No data available'}
     
     except Exception as e:
         scraping_status['last_status'] = f'Error: {str(e)}'
         print(f"[ERROR] Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Try sample data as fallback even on exception
+        try:
+            print("[INFO] Trying sample data after exception...")
+            from sgcarmart_scraper import SGCarmartScraper
+            scraper = SGCarmartScraper(headless=True)
+            sample_data = scraper._get_sample_data()
+            if sample_data and sample_data.get('vehicles'):
+                saved_date = history_manager.save_data(sample_data)
+                scraping_status['last_scrape'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                scraping_status['last_status'] = f'Success - {len(sample_data.get("vehicles", []))} vehicles (sample data)'
+                return {
+                    'success': True,
+                    'date': saved_date,
+                    'vehicles_count': len(sample_data.get('vehicles', [])),
+                    'source': 'sample data',
+                    'message': 'Data loaded from sample data (after error)'
+                }
+        except:
+            pass
+        
         return {'success': False, 'error': str(e)}
     
     finally:
@@ -311,34 +365,50 @@ def api_data_by_date(date):
 
 @app.route('/api/data/latest')
 def api_data_latest():
-    """Get latest data"""
-    data = history_manager.get_latest()
-    
-    if data:
-        dates = history_manager.get_dates()
-        current_date = dates[0] if dates else None
+    """Get latest data - always return data, fallback to sample if needed"""
+    try:
+        data = history_manager.get_latest()
         
-        return jsonify({
-            'success': True,
-            'data': data,
-            'date': current_date,
-            'previous_date': history_manager.get_previous_date(current_date) if current_date else None,
-            'next_date': None
-        })
+        # Check if data is valid
+        if data and data.get('vehicles') and len(data.get('vehicles', [])) > 0:
+            dates = history_manager.get_dates()
+            current_date = dates[0] if dates else None
+            
+            return jsonify({
+                'success': True,
+                'data': data,
+                'date': current_date,
+                'previous_date': history_manager.get_previous_date(current_date) if current_date else None,
+                'next_date': None
+            })
+    except Exception as e:
+        print(f"[WARNING] Error getting latest data: {e}")
     
-    # No history, return sample data
-    from sgcarmart_scraper import SGCarmartScraper
-    scraper = SGCarmartScraper()
-    sample_data = scraper._get_sample_data()
+    # No history or invalid data, return sample data
+    print("[INFO] Loading sample data for /api/data/latest")
+    try:
+        from sgcarmart_scraper import SGCarmartScraper
+        scraper = SGCarmartScraper()
+        sample_data = scraper._get_sample_data()
+        
+        if sample_data and sample_data.get('vehicles'):
+            return jsonify({
+                'success': True,
+                'data': sample_data,
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'previous_date': None,
+                'next_date': None,
+                'is_sample': True
+            })
+    except Exception as e:
+        print(f"[ERROR] Failed to load sample data: {e}")
     
+    # Last resort: return error
     return jsonify({
-        'success': True,
-        'data': sample_data,
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'previous_date': None,
-        'next_date': None,
-        'is_sample': True
-    })
+        'success': False,
+        'error': 'Unable to load data',
+        'data': {'vehicles': []}
+    }), 500
 
 
 @app.route('/api/upload-pricelist', methods=['POST'])
@@ -528,23 +598,30 @@ def initialize_data():
     """Initialize with sample data if no history exists"""
     print("[INIT] Checking for existing data...")
     
-    existing_data = history_manager.get_latest()
-    if existing_data:
-        print(f"[INIT] Found existing data with {len(existing_data.get('vehicles', []))} vehicles")
-        return
+    try:
+        existing_data = history_manager.get_latest()
+        if existing_data and existing_data.get('vehicles'):
+            print(f"[INIT] Found existing data with {len(existing_data.get('vehicles', []))} vehicles")
+            return
+    except Exception as e:
+        print(f"[INIT] Error checking existing data: {e}")
     
     print("[INIT] No data found, loading sample data...")
     try:
+        from sgcarmart_scraper import SGCarmartScraper
         scraper = SGCarmartScraper(headless=True)
         sample_data = scraper._get_sample_data()
         
-        if sample_data:
-            history_manager.save_data(sample_data)
+        if sample_data and sample_data.get('vehicles'):
+            saved_date = history_manager.save_data(sample_data)
             print(f"[INIT] Sample data loaded: {len(sample_data.get('vehicles', []))} vehicles")
+            print(f"[INIT] Saved to: {saved_date}")
         else:
-            print("[INIT] Warning: Could not load sample data")
+            print("[INIT] ERROR: Sample data is empty!")
     except Exception as e:
-        print(f"[INIT] Error loading sample data: {e}")
+        print(f"[INIT] ERROR loading sample data: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == '__main__':
