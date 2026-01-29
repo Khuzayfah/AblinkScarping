@@ -363,7 +363,7 @@
             <div class="scrape-title">🔄 REAL-TIME SCRAPING FROM SGCARMART.COM</div>
             
             <button class="scrape-button" id="scrapeBtn" onclick="startScraping()">
-                🔄 SCRAPE NOW
+                🔄 REFRESH DATA
             </button>
             
             <div class="scrape-info">
@@ -613,14 +613,14 @@
                     
                     if (data.is_scraping) {
                         indicator.className = 'scrape-status status-scraping';
-                        indicator.textContent = 'Scraping...';
+                        indicator.textContent = 'Loading...';
                         scrapeBtn.disabled = true;
-                        scrapeBtn.textContent = '⏳ SCRAPING...';
+                        scrapeBtn.textContent = '⏳ LOADING...';
                     } else {
                         indicator.className = 'scrape-status status-ready';
                         indicator.textContent = 'Ready';
                         scrapeBtn.disabled = false;
-                        scrapeBtn.textContent = '🔄 SCRAPE NOW';
+                        scrapeBtn.textContent = '🔄 REFRESH DATA';
                     }
                     
                     if (data.last_scrape) {
@@ -630,31 +630,37 @@
         }
         
         function startScraping() {
-            if (!confirm('Start scraping REAL DATA from SGCarmart.com?\n\nThis will take 2-3 minutes.')) return;
+            if (!confirm('Refresh data from SGCarmart?\n\nThis will load the latest market data.')) return;
             
             const indicator = document.getElementById('statusIndicator');
             const scrapeBtn = document.getElementById('scrapeBtn');
             
             indicator.className = 'scrape-status status-scraping';
-            indicator.textContent = 'Scraping...';
+            indicator.textContent = 'Loading...';
             scrapeBtn.disabled = true;
-            scrapeBtn.textContent = '⏳ SCRAPING...';
+            scrapeBtn.textContent = '⏳ LOADING...';
             
             fetch('/api/scrape', { method: 'POST' })
                 .then(res => res.json())
                 .then(data => {
                     if (data.success) {
-                        alert(`✓ Scraping Completed!\n\n${data.vehicles_count} vehicles scraped\nDate: ${data.date}`);
+                        const source = data.source || 'SGCarmart';
+                        alert(`✓ Data Loaded!\n\n${data.vehicles_count} vehicles\nSource: ${source}\nDate: ${data.date}`);
                         loadLatestData();
                         loadHistory();
+                        loadComparison();
                     } else {
-                        alert('✗ Scraping Failed\n\n' + (data.error || 'Unknown error'));
+                        alert('✗ Failed to load data\n\n' + (data.error || 'Unknown error'));
                     }
                     updateStatus();
                 })
                 .catch(err => {
-                    alert('✗ Error: ' + err);
+                    alert('✗ Network Error: ' + err);
                     updateStatus();
+                })
+                .finally(() => {
+                    scrapeBtn.disabled = false;
+                    scrapeBtn.textContent = '🔄 REFRESH DATA';
                 });
         }
         

@@ -1,7 +1,16 @@
 {
-  "uploaded_at": "2026-01-29 10:04:54",
+  "uploaded_at": "2026-01-29 10:34:43",
   "filename": "PRICELIST_TEMPLATE.csv",
   "vehicles": [
+    {
+      "vehicle": "Hino Dutro 150MT",
+      "category": "10FT DIESEL",
+      "registered_date": "15/01/2026",
+      "asking_price": 130000.0,
+      "coe_expiry": "14/01/2036",
+      "depreciation": 13000,
+      "registered_year": 2026
+    },
     {
       "vehicle": "Hino Dutro 150MT",
       "category": "10FT DIESEL",
