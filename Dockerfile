@@ -29,6 +29,12 @@ RUN apt-get update && apt-get install -y \
     libxkbcommon0 \
     libxrandr2 \
     xdg-utils \
+    libegl1 \
+    libgl1 \
+    libglib2.0-0 \
+    libx11-6 \
+    libxcb1 \
+    libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching

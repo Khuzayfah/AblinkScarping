@@ -192,7 +192,14 @@ class SGCarMartJSScraper:
             print("\n[1/4] Launching undetected browser...")
             browser = p.chromium.launch(
                 headless=self.headless,
-                args=['--disable-blink-features=AutomationControlled']
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--disable-gpu'
+                ]
             )
 
             context = browser.new_context(
