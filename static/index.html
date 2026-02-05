@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ablink SGCarmart Scraper</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --ablink-green: #1a5f2a;
+            --ablink-green-dark: #0d3d16;
+            --ablink-purple: linear-gradient(135deg, #7c3aed 0%, #c026d3 100%);
+        }
+        body {
+            background: #f0f2f5;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .main-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            margin: 24px auto;
+            max-width: 1600px;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
+        }
+        .header {
+            background: var(--ablink-green);
+            color: white;
+            padding: 28px 32px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .header-icon {
+            width: 48px;
+            height: 48px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+        .header p {
+            margin: 4px 0 0 0;
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }
+        .controls-panel {
+            padding: 32px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .section-title {
+            color: var(--ablink-green);
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-refresh {
+            background: var(--ablink-purple);
+            color: white;
+            border: none;
+            padding: 14px 40px;
+            border-radius: 25px;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-refresh:hover {
+            color: white;
+            transform: scale(1.02);
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4);
+        }
+        .btn-refresh:disabled {
+            opacity: 0.8;
+        }
+        .status-badge {
+            display: inline-block;
+            background: #d1fae5;
+            color: #065f46;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-top: 12px;
+        }
+        .status-badge.scraping {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .last-scrape {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #6b7280;
+        }
+        .schedule-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .schedule-row label {
+            margin: 0;
+            font-weight: 600;
+            color: #374151;
+        }
+        .schedule-row input[type="time"] {
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            font-size: 1rem;
+        }
+        .btn-schedule {
+            background: var(--ablink-green);
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        .btn-schedule:hover {
+            background: var(--ablink-green-dark);
+            color: white;
+        }
+        .current-schedule {
+            color: var(--ablink-green);
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+        .table-container {
+            padding: 0;
+            overflow-x: auto;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .data-table thead {
+            background: #1f2937;
+            color: white;
+        }
+        .data-table thead th {
+            padding: 12px 10px;
+            font-weight: 600;
+            text-align: center;
+            border: 1px solid #374151;
+        }
+        .data-table thead th.vehicle-col {
+            text-align: left;
+            min-width: 180px;
+        }
+        .data-table thead th.year-group {
+            border-left: 2px solid #4b5563;
+        }
+        .data-table tbody tr:nth-child(even) {
+            background: #f9fafb;
+        }
+        .data-table tbody tr:hover {
+            background: #f3f4f6;
+        }
+        .data-table tbody td {
+            padding: 10px;
+            border: 1px solid #e5e7eb;
+            text-align: center;
+        }
+        .data-table tbody td.vehicle-col {
+            text-align: left;
+            font-weight: 500;
+        }
+        .data-table tbody tr.category-row td {
+            background: #e5e7eb;
+            font-weight: 700;
+            color: #1f2937;
+        }
+        .data-table .price-cell {
+            white-space: nowrap;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6b7280;
+        }
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+        .export-bar {
+            padding: 16px 32px;
+            background: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .export-bar .btn {
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        /* Chart 3: Daily Sold Log - one line per entry, colored fields */
+        .sold-log-section {
+            padding: 24px 32px;
+            border-top: 1px solid #e5e7eb;
+            background: #fafafa;
+        }
+        .sold-log-section h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 16px;
+        }
+        .sold-log-line {
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        .sold-log-line:last-child { border-bottom: none; }
+        .sold-log-date { color: #4b5563; font-weight: 500; }
+        .sold-log-make { color: #1e40af; font-weight: 600; }
+        .sold-log-year { color: #166534; font-weight: 600; }
+        .sold-log-depre { color: #c2410c; font-weight: 600; }
+        .sold-log-dealer { color: #374151; }
+        .sold-log-empty { color: #9ca3af; font-style: italic; padding: 12px 0; }
+        @media (max-width: 768px) {
+            .header { flex-direction: column; text-align: center; }
+            .schedule-row { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid p-3">
+        <div class="main-container">
+            <div class="header">
+                <div class="header-icon"><i class="bi bi-truck"></i></div>
+                <div>
+                    <h1>Ablink SGCarmart Scraper</h1>
+                    <p>Real-time Market Data from SGCarmart.com | By Oneiros Indonesia</p>
+                </div>
+            </div>
+
+            <div class="controls-panel">
+                <div class="section-title"><i class="bi bi-arrow-repeat"></i> REAL-TIME SCRAPING FROM SGCARMART.COM</div>
+                <div>
+                    <button class="btn btn-refresh" id="btnRefresh" onclick="triggerScrape()">
+                        <i class="bi bi-arrow-clockwise me-2"></i> REFRESH DATA
+                    </button>
+                    <div class="status-badge" id="statusBadge">Ready</div>
+                    <div class="last-scrape" id="lastScrape">Last scrape: —</div>
+                </div>
+                <div class="schedule-row mt-4">
+                    <label>Auto Scrape Daily at:</label>
+                    <input type="time" id="scheduleTime" value="09:00">
+                    <button class="btn btn-schedule" onclick="updateSchedule()">Update Schedule</button>
+                    <span class="current-schedule" id="currentSchedule">Current: —</span>
+                </div>
+            </div>
+
+            <div class="loading-spinner" id="loadingSpinner">
+                <div class="spinner-border text-success" role="status" style="width: 3rem; height: 3rem;"></div>
+                <p class="mt-3 text-muted">Loading data...</p>
+            </div>
+
+            <div class="table-container" id="tableContainer">
+                <div class="empty-state" id="emptyState">
+                    <i class="bi bi-inbox"></i>
+                    <h4>No Data Available</h4>
+                    <p>Click "REFRESH DATA" to scrape, or select a date and load report</p>
+                    <label class="mt-3">Report date:</label>
+                    <input type="date" id="reportDate" class="form-control d-inline-block w-auto mx-2">
+                    <button class="btn btn-outline-success btn-sm" onclick="loadDailyReport()">Load Report</button>
+                </div>
+                <div style="display: none;" id="dataTableWrapper">
+                    <div class="d-flex justify-content-between align-items-center px-3 py-2 bg-light border-bottom">
+                        <span>Report date: <strong id="reportDateLabel">—</strong></span>
+                        <div>
+                            <input type="date" id="reportDateTop">
+                            <button class="btn btn-sm btn-outline-primary ms-2" onclick="loadDailyReport()">Load</button>
+                        </div>
+                    </div>
+                    <table class="table data-table">
+                        <thead id="tableHead"></thead>
+                        <tbody id="dataTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="sold-log-section">
+                <h3>DAILY SOLD LOG</h3>
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <label class="mb-0 small fw-bold">Filter by date:</label>
+                    <input type="date" id="soldLogDate">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="loadSoldLog()">Load</button>
+                </div>
+                <div id="soldLogContainer">
+                    <div class="sold-log-empty">Loading...</div>
+                </div>
+            </div>
+
+            <div class="export-bar" id="exportBar" style="display: none;">
+                <button class="btn btn-outline-success btn-sm" onclick="exportData('csv')"><i class="bi bi-file-earmark-spreadsheet"></i> CSV</button>
+                <button class="btn btn-outline-success btn-sm" onclick="exportData('excel')"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+                <button class="btn btn-outline-danger btn-sm" onclick="exportData('pdf')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="notificationToast" class="toast" role="alert">
+            <div class="toast-header"><strong class="me-auto">Notification</strong><button type="button" class="btn-close" data-bs-dismiss="toast"></button></div>
+            <div class="toast-body" id="toastMessage"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>
