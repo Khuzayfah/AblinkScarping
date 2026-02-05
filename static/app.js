@@ -255,3 +255,162 @@ document.addEventListener('DOMContentLoaded', function () {
     loadDailyReport();
     loadSoldLog();
 });
+
+// ============================================================
+// DEBUG CONSOLE FUNCTIONS
+// ============================================================
+
+function debugLog(message, type = 'info') {
+    const output = document.getElementById('debugOutput');
+    const timestamp = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+
+    let icon = '';
+    let className = 'debug-log-info';
+
+    if (type === 'success') {
+        icon = '✓';
+        className = 'debug-log-success';
+    } else if (type === 'error') {
+        icon = '✗';
+        className = 'debug-log-error';
+    } else if (type === 'warning') {
+        icon = '⚠';
+        className = 'debug-log-warning';
+    } else if (type === 'info') {
+        icon = 'ℹ';
+        className = 'debug-log-info';
+    }
+
+    line.innerHTML = `<span class="debug-log-timestamp">[${timestamp}]</span> <span class="${className}">${icon} ${message}</span>`;
+    output.appendChild(line);
+    output.scrollTop = output.scrollHeight;
+}
+
+function clearDebugLogs() {
+    document.getElementById('debugOutput').innerHTML = '';
+    debugLog('Debug console cleared', 'info');
+}
+
+function copyDebugLogs() {
+    const output = document.getElementById('debugOutput');
+    const text = output.innerText;
+
+    if (!text || text.includes('No logs yet')) {
+        showNotification('No logs to copy', true);
+        return;
+    }
+
+    navigator.clipboard.writeText(text).then(() => {
+        showNotification('Logs copied to clipboard!');
+        debugLog('Logs copied to clipboard', 'success');
+    }).catch(err => {
+        showNotification('Failed to copy: ' + err, true);
+    });
+}
+
+async function runQuickTest() {
+    debugLog('========================================', 'info');
+    debugLog('QUICK DIAGNOSTIC TEST STARTED', 'info');
+    debugLog('========================================', 'info');
+
+    try {
+        debugLog('Running comprehensive diagnostics...', 'info');
+
+        const response = await fetch('/api/debug/quick-test', {
+            method: 'POST'
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            debugLog('Test completed successfully', 'success');
+            debugLog('========================================', 'info');
+
+            // Display results
+            data.results.forEach(result => {
+                const type = result.success ? 'success' : 'error';
+                debugLog(`[${result.test}] ${result.message}`, type);
+
+                if (result.details) {
+                    debugLog(`  Details: ${result.details}`, 'info');
+                }
+            });
+
+            debugLog('========================================', 'info');
+            debugLog(`Summary: ${data.summary}`, data.all_passed ? 'success' : 'warning');
+
+            if (!data.all_passed) {
+                debugLog('⚠ Some tests failed. Copy logs and send to developer.', 'warning');
+            }
+        } else {
+            debugLog(`Test failed: ${data.error || 'Unknown error'}`, 'error');
+        }
+
+    } catch (error) {
+        debugLog(`Error running test: ${error.message}`, 'error');
+        debugLog('Make sure the backend is running and accessible', 'warning');
+    }
+}
+
+async function testNetwork() {
+    debugLog('Testing network connectivity...', 'info');
+
+    try {
+        const response = await fetch('/api/debug/test-network', {
+            method: 'POST'
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            debugLog(`✓ Network test passed`, 'success');
+            debugLog(`  SGCarMart.com: HTTP ${data.status_code}`, 'success');
+            debugLog(`  Response time: ${data.response_time}ms`, 'info');
+        } else {
+            debugLog(`✗ Network test failed: ${data.error}`, 'error');
+            debugLog('  Possible causes:', 'warning');
+            debugLog('    - Server firewall blocking outgoing HTTPS', 'warning');
+            debugLog('    - DNS resolution issue', 'warning');
+            debugLog('    - SGCarMart blocking server IP', 'warning');
+        }
+    } catch (error) {
+        debugLog(`Error: ${error.message}`, 'error');
+    }
+}
+
+async function testBrowser() {
+    debugLog('Testing browser (Playwright/Chromium)...', 'info');
+    debugLog('This may take 10-30 seconds...', 'info');
+
+    try {
+        const response = await fetch('/api/debug/test-browser', {
+            method: 'POST'
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            debugLog(`✓ Browser test passed`, 'success');
+            debugLog(`  Chromium launched: OK`, 'success');
+            debugLog(`  Page loaded: ${data.page_title}`, 'success');
+            debugLog(`  Listings found: ${data.listings_count}`, 'info');
+
+            if (data.listings_count === 0) {
+                debugLog('⚠ Warning: No listings found on search page', 'warning');
+                debugLog('  Possible causes:', 'warning');
+                debugLog('    - Page structure changed', 'warning');
+                debugLog('    - JavaScript selectors need update', 'warning');
+                debugLog('    - SGCarMart blocking detection', 'warning');
+            }
+        } else {
+            debugLog(`✗ Browser test failed: ${data.error}`, 'error');
+            debugLog('  Common fixes:', 'warning');
+            debugLog('    - Run: playwright install chromium', 'info');
+            debugLog('    - Run: playwright install-deps chromium', 'info');
+            debugLog('    - Check Dockerfile has all dependencies', 'info');
+        }
+    } catch (error) {
+        debugLog(`Error: ${error.message}`, 'error');
+    }
+}

@@ -442,6 +442,261 @@ async def get_statistics(db: Session = Depends(get_db)):
         }
     }
 
+
+# ============================================================
+# DEBUG ENDPOINTS - For Debug Console
+# ============================================================
+
+@app.post("/api/debug/quick-test")
+async def debug_quick_test():
+    """Run quick diagnostic test - all components"""
+    results = []
+    all_passed = True
+
+    # Test 1: Imports
+    try:
+        from playwright.sync_api import sync_playwright
+        from undetected_playwright import stealth_sync
+        results.append({
+            "test": "Imports",
+            "success": True,
+            "message": "All imports OK (Playwright, undetected-playwright)"
+        })
+    except ImportError as e:
+        all_passed = False
+        results.append({
+            "test": "Imports",
+            "success": False,
+            "message": f"Import failed: {str(e)}",
+            "details": "Run: pip install playwright undetected-playwright"
+        })
+        return {"results": results, "all_passed": False, "summary": "Import test failed"}
+
+    # Test 2: Network
+    try:
+        import requests
+        r = requests.get("https://www.sgcarmart.com", timeout=10)
+        results.append({
+            "test": "Network",
+            "success": r.status_code == 200,
+            "message": f"SGCarMart.com: HTTP {r.status_code}",
+            "details": f"Response time: {int(r.elapsed.total_seconds() * 1000)}ms"
+        })
+        if r.status_code != 200:
+            all_passed = False
+    except Exception as e:
+        all_passed = False
+        results.append({
+            "test": "Network",
+            "success": False,
+            "message": f"Network failed: {str(e)}",
+            "details": "Check firewall, DNS, or IP blocking"
+        })
+
+    # Test 3: Chromium Launch
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+            )
+            browser.close()
+        results.append({
+            "test": "Chromium Launch",
+            "success": True,
+            "message": "Chromium launched successfully"
+        })
+    except Exception as e:
+        all_passed = False
+        results.append({
+            "test": "Chromium Launch",
+            "success": False,
+            "message": f"Chromium launch failed: {str(e)}",
+            "details": "Run: playwright install chromium && playwright install-deps chromium"
+        })
+
+    # Test 4: Page Load
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+            )
+            context = browser.new_context()
+            page = context.new_page()
+            page.goto("https://www.sgcarmart.com", timeout=30000)
+            title = page.title()
+            browser.close()
+
+        results.append({
+            "test": "Page Load",
+            "success": True,
+            "message": f"Page loaded: {title[:50]}",
+            "details": "No blocking detected"
+        })
+    except Exception as e:
+        all_passed = False
+        results.append({
+            "test": "Page Load",
+            "success": False,
+            "message": f"Page load failed: {str(e)}",
+            "details": "Possible timeout or blocking"
+        })
+
+    # Test 5: Stealth Mode
+    try:
+        from playwright.sync_api import sync_playwright
+        from undetected_playwright import stealth_sync
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+            )
+            context = browser.new_context()
+            page = context.new_page()
+            stealth_sync(page)
+            page.goto("https://www.sgcarmart.com", timeout=30000)
+            title = page.title()
+            browser.close()
+
+        results.append({
+            "test": "Stealth Mode",
+            "success": True,
+            "message": "Stealth mode applied successfully",
+            "details": f"Page loaded: {title[:40]}"
+        })
+    except Exception as e:
+        all_passed = False
+        results.append({
+            "test": "Stealth Mode",
+            "success": False,
+            "message": f"Stealth mode failed: {str(e)}"
+        })
+
+    # Test 6: Mini Scrape
+    try:
+        from playwright.sync_api import sync_playwright
+        from undetected_playwright import stealth_sync
+        import time
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+            )
+            context = browser.new_context()
+            page = context.new_page()
+            stealth_sync(page)
+
+            page.goto("https://www.sgcarmart.com/search?q=Toyota+Hiace", timeout=30000)
+            time.sleep(3)
+
+            link_count = page.evaluate('() => document.querySelectorAll(\'a[href*="info"]\').length')
+            browser.close()
+
+        if link_count > 0:
+            results.append({
+                "test": "Mini Scrape",
+                "success": True,
+                "message": f"Found {link_count} listings on search page",
+                "details": "Scraping selectors working correctly"
+            })
+        else:
+            all_passed = False
+            results.append({
+                "test": "Mini Scrape",
+                "success": False,
+                "message": "Found 0 listings",
+                "details": "Page structure may have changed OR SGCarMart blocking"
+            })
+    except Exception as e:
+        all_passed = False
+        results.append({
+            "test": "Mini Scrape",
+            "success": False,
+            "message": f"Scrape test failed: {str(e)}"
+        })
+
+    # Summary
+    passed = sum(1 for r in results if r["success"])
+    total = len(results)
+    summary = f"{passed}/{total} tests passed"
+
+    return {
+        "results": results,
+        "all_passed": all_passed,
+        "summary": summary
+    }
+
+
+@app.post("/api/debug/test-network")
+async def debug_test_network():
+    """Test network connectivity to SGCarMart"""
+    try:
+        import requests
+        import time
+
+        start = time.time()
+        r = requests.get("https://www.sgcarmart.com", timeout=10)
+        elapsed = int((time.time() - start) * 1000)
+
+        return {
+            "success": r.status_code == 200,
+            "status_code": r.status_code,
+            "response_time": elapsed,
+            "message": f"HTTP {r.status_code}" if r.status_code == 200 else "Request failed"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Network test failed"
+        }
+
+
+@app.post("/api/debug/test-browser")
+async def debug_test_browser():
+    """Test Playwright browser and page loading"""
+    try:
+        from playwright.sync_api import sync_playwright
+        from undetected_playwright import stealth_sync
+        import time
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+            )
+            context = browser.new_context()
+            page = context.new_page()
+            stealth_sync(page)
+
+            # Load search page
+            page.goto("https://www.sgcarmart.com/search?q=Toyota+Hiace", timeout=30000)
+            time.sleep(3)
+
+            title = page.title()
+            link_count = page.evaluate('() => document.querySelectorAll(\'a[href*="info"]\').length')
+
+            browser.close()
+
+        return {
+            "success": True,
+            "page_title": title,
+            "listings_count": link_count,
+            "message": f"Browser test passed. Found {link_count} listings."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Browser test failed"
+        }
+
+
 # Mount static files
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")

@@ -240,9 +240,99 @@
         .sold-log-depre { color: #c2410c; font-weight: 600; }
         .sold-log-dealer { color: #374151; }
         .sold-log-empty { color: #9ca3af; font-style: italic; padding: 12px 0; }
+
+        /* Debug Console Panel */
+        .debug-console {
+            border-top: 3px solid #ef4444;
+            background: #1f2937;
+            color: #f3f4f6;
+            padding: 20px 32px;
+        }
+        .debug-console h3 {
+            color: #ef4444;
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .debug-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .debug-controls button {
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .debug-controls .btn-test {
+            background: #10b981;
+            color: white;
+        }
+        .debug-controls .btn-test:hover {
+            background: #059669;
+        }
+        .debug-controls .btn-clear {
+            background: #6b7280;
+            color: white;
+        }
+        .debug-controls .btn-clear:hover {
+            background: #4b5563;
+        }
+        .debug-controls .btn-copy {
+            background: #3b82f6;
+            color: white;
+        }
+        .debug-controls .btn-copy:hover {
+            background: #2563eb;
+        }
+        .debug-output {
+            background: #111827;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            padding: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.5;
+        }
+        .debug-output:empty:before {
+            content: 'No logs yet. Click "Run Quick Test" to start diagnostics...';
+            color: #6b7280;
+            font-style: italic;
+        }
+        .debug-log-success {
+            color: #10b981;
+        }
+        .debug-log-error {
+            color: #ef4444;
+            font-weight: 600;
+        }
+        .debug-log-warning {
+            color: #f59e0b;
+        }
+        .debug-log-info {
+            color: #60a5fa;
+        }
+        .debug-log-timestamp {
+            color: #6b7280;
+            font-size: 0.8rem;
+        }
+
         @media (max-width: 768px) {
             .header { flex-direction: column; text-align: center; }
             .schedule-row { flex-direction: column; align-items: flex-start; }
+            .debug-controls { flex-direction: column; }
         }
     </style>
 </head>
@@ -319,6 +409,29 @@
                 <button class="btn btn-outline-success btn-sm" onclick="exportData('csv')"><i class="bi bi-file-earmark-spreadsheet"></i> CSV</button>
                 <button class="btn btn-outline-success btn-sm" onclick="exportData('excel')"><i class="bi bi-file-earmark-excel"></i> Excel</button>
                 <button class="btn btn-outline-danger btn-sm" onclick="exportData('pdf')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+            </div>
+
+            <!-- Debug Console Panel -->
+            <div class="debug-console">
+                <h3><i class="bi bi-bug-fill"></i> DEBUG CONSOLE - Diagnostic Tools</h3>
+                <div class="debug-controls">
+                    <button class="btn-test" onclick="runQuickTest()">
+                        <i class="bi bi-play-circle"></i> Run Quick Test
+                    </button>
+                    <button class="btn-test" onclick="testNetwork()">
+                        <i class="bi bi-wifi"></i> Test Network
+                    </button>
+                    <button class="btn-test" onclick="testBrowser()">
+                        <i class="bi bi-browser-chrome"></i> Test Browser
+                    </button>
+                    <button class="btn-copy" onclick="copyDebugLogs()">
+                        <i class="bi bi-clipboard"></i> Copy Logs
+                    </button>
+                    <button class="btn-clear" onclick="clearDebugLogs()">
+                        <i class="bi bi-trash"></i> Clear
+                    </button>
+                </div>
+                <div class="debug-output" id="debugOutput"></div>
             </div>
         </div>
     </div>
