@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+env/
+venv/
+ENV/
+.venv/
+
+# Database (will be created in volume)
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation (keep for reference but not needed in container)
+*.md
+!README.md
+
+# Test files
+test_*.py
+check_*.py
+verify_*.py
+inspect_*.py
+debug_*.py
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Temp files
+*.tmp
+*.bak
+*.swp
+go.bat
+test.bat
+install.bat
+
+# Old/backup files
+*_OLD*.py
+*_BACKUP*.py
+*_BROKEN*.py
+*_FIXED*.py
+*_WORKING*.py
+*_ULTIMATE*.py
+*_simplified*.py

@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  sgcarmart-scraper:
+    build: .
+    container_name: sgcarmart-scraper
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist database
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:///./data/scraping.db
+      - SCRAPE_SCHEDULE_TIME=08:00
+      - TZ=Asia/Singapore
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "coolify.managed=true"
