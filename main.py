@@ -455,8 +455,8 @@ async def debug_quick_test():
 
     # Test 1: Imports
     try:
-        from playwright.sync_api import sync_playwright
-        from undetected_playwright import stealth_sync
+        from playwright.async_api import async_playwright
+        from undetected_playwright import stealth_async
         results.append({
             "test": "Imports",
             "success": True,
@@ -474,8 +474,9 @@ async def debug_quick_test():
 
     # Test 2: Network
     try:
-        import requests
-        r = requests.get("https://www.sgcarmart.com", timeout=10)
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get("https://www.sgcarmart.com")
         results.append({
             "test": "Network",
             "success": r.status_code == 200,
@@ -495,13 +496,13 @@ async def debug_quick_test():
 
     # Test 3: Chromium Launch
     try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
                 headless=True,
                 args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
             )
-            browser.close()
+            await browser.close()
         results.append({
             "test": "Chromium Launch",
             "success": True,
@@ -518,17 +519,17 @@ async def debug_quick_test():
 
     # Test 4: Page Load
     try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
                 headless=True,
                 args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
             )
-            context = browser.new_context()
-            page = context.new_page()
-            page.goto("https://www.sgcarmart.com", timeout=30000)
-            title = page.title()
-            browser.close()
+            context = await browser.new_context()
+            page = await context.new_page()
+            await page.goto("https://www.sgcarmart.com", timeout=30000)
+            title = await page.title()
+            await browser.close()
 
         results.append({
             "test": "Page Load",
@@ -547,20 +548,20 @@ async def debug_quick_test():
 
     # Test 5: Stealth Mode
     try:
-        from playwright.sync_api import sync_playwright
-        from undetected_playwright import stealth_sync
+        from playwright.async_api import async_playwright
+        from undetected_playwright import stealth_async
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
                 headless=True,
                 args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
             )
-            context = browser.new_context()
-            page = context.new_page()
-            stealth_sync(page)
-            page.goto("https://www.sgcarmart.com", timeout=30000)
-            title = page.title()
-            browser.close()
+            context = await browser.new_context()
+            page = await context.new_page()
+            await stealth_async(page)
+            await page.goto("https://www.sgcarmart.com", timeout=30000)
+            title = await page.title()
+            await browser.close()
 
         results.append({
             "test": "Stealth Mode",
@@ -578,24 +579,24 @@ async def debug_quick_test():
 
     # Test 6: Mini Scrape
     try:
-        from playwright.sync_api import sync_playwright
-        from undetected_playwright import stealth_sync
-        import time
+        from playwright.async_api import async_playwright
+        from undetected_playwright import stealth_async
+        import asyncio
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
                 headless=True,
                 args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
             )
-            context = browser.new_context()
-            page = context.new_page()
-            stealth_sync(page)
+            context = await browser.new_context()
+            page = await context.new_page()
+            await stealth_async(page)
 
-            page.goto("https://www.sgcarmart.com/search?q=Toyota+Hiace", timeout=30000)
-            time.sleep(3)
+            await page.goto("https://www.sgcarmart.com/search?q=Toyota+Hiace", timeout=30000)
+            await asyncio.sleep(3)
 
-            link_count = page.evaluate('() => document.querySelectorAll(\'a[href*="info"]\').length')
-            browser.close()
+            link_count = await page.evaluate('() => document.querySelectorAll(\'a[href*="info"]\').length')
+            await browser.close()
 
         if link_count > 0:
             results.append({
@@ -636,11 +637,12 @@ async def debug_quick_test():
 async def debug_test_network():
     """Test network connectivity to SGCarMart"""
     try:
-        import requests
+        import httpx
         import time
 
         start = time.time()
-        r = requests.get("https://www.sgcarmart.com", timeout=10)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get("https://www.sgcarmart.com")
         elapsed = int((time.time() - start) * 1000)
 
         return {
@@ -661,27 +663,27 @@ async def debug_test_network():
 async def debug_test_browser():
     """Test Playwright browser and page loading"""
     try:
-        from playwright.sync_api import sync_playwright
-        from undetected_playwright import stealth_sync
-        import time
+        from playwright.async_api import async_playwright
+        from undetected_playwright import stealth_async
+        import asyncio
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
                 headless=True,
                 args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
             )
-            context = browser.new_context()
-            page = context.new_page()
-            stealth_sync(page)
+            context = await browser.new_context()
+            page = await context.new_page()
+            await stealth_async(page)
 
             # Load search page
-            page.goto("https://www.sgcarmart.com/search?q=Toyota+Hiace", timeout=30000)
-            time.sleep(3)
+            await page.goto("https://www.sgcarmart.com/search?q=Toyota+Hiace", timeout=30000)
+            await asyncio.sleep(3)
 
-            title = page.title()
-            link_count = page.evaluate('() => document.querySelectorAll(\'a[href*="info"]\').length')
+            title = await page.title()
+            link_count = await page.evaluate('() => document.querySelectorAll(\'a[href*="info"]\').length')
 
-            browser.close()
+            await browser.close()
 
         return {
             "success": True,
