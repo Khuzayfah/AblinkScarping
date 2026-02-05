@@ -4,9 +4,10 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for Playwright
+# Install system dependencies for Playwright and curl for health checks
 RUN apt-get update && apt-get install -y \
     wget \
+    curl \
     gnupg \
     ca-certificates \
     fonts-liberation \
@@ -43,8 +44,8 @@ RUN playwright install-deps chromium
 # Copy application files
 COPY . .
 
-# Create directory for database
-RUN mkdir -p /app/data
+# Create directory for database with proper permissions
+RUN mkdir -p /app/data && chmod 777 /app/data
 
 # Expose port
 EXPOSE 8000
@@ -53,9 +54,9 @@ EXPOSE 8000
 ENV DATABASE_URL=sqlite:///./data/scraping.db
 ENV PYTHONUNBUFFERED=1
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+# Health check - using curl instead of requests for reliability
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
 # Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
