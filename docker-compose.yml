@@ -6,7 +6,7 @@ services:
     container_name: sgcarmart-scraper
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "3000:3000"
     volumes:
       # Persist database
       - ./data:/app/data
@@ -14,8 +14,9 @@ services:
       - DATABASE_URL=sqlite:///./data/scraping.db
       - SCRAPE_SCHEDULE_TIME=08:00
       - TZ=Asia/Singapore
+      - PORT=3000
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

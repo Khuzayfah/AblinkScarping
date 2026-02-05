@@ -48,15 +48,16 @@ COPY . .
 RUN mkdir -p /app/data && chmod 777 /app/data
 
 # Expose port
-EXPOSE 8000
+EXPOSE 3000
 
 # Set environment variables
 ENV DATABASE_URL=sqlite:///./data/scraping.db
 ENV PYTHONUNBUFFERED=1
+ENV PORT=3000
 
 # Health check - using curl instead of requests for reliability
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+    CMD curl -f http://localhost:3000/api/health || exit 1
 
 # Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
