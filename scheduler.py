@@ -17,11 +17,10 @@ class ScraperScheduler:
         self._interval_days = 1  # Default: every day
         
     def scrape_job(self):
-        """Job to execute scraping (active + sold listings)"""
+        """Job to execute scraping (active listings + daily sold detection)"""
         print(f"Automated scrape triggered at {datetime.now()}")
         try:
             self.scraper.scrape_vehicle_listings()
-            self.scraper.scrape_sold_listings()
             db = SessionLocal()
             try:
                 log = db.query(ScrapeLog).first()
