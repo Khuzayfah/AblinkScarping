@@ -160,7 +160,16 @@ async function loadDailyReport() {
         var data = await r.json();
         setReportDate(data.date);
         document.getElementById('reportDateLabel').textContent = data.date;
-        if (data.daily_table && data.daily_table.groups && data.daily_table.groups.length > 0) {
+        // Check if there is any sold data in groups
+        var hasSold = false;
+        if (data.daily_table && data.daily_table.groups) {
+            data.daily_table.groups.forEach(function (g) {
+                g.models.forEach(function (m) {
+                    if (m.entries && m.entries.length > 0) hasSold = true;
+                });
+            });
+        }
+        if (hasSold) {
             document.getElementById('emptyState').style.display = 'none';
             document.getElementById('dataTableWrapper').style.display = 'block';
             document.getElementById('exportBar').style.display = 'flex';
@@ -171,7 +180,8 @@ async function loadDailyReport() {
             document.getElementById('exportBar').style.display = 'none';
             document.getElementById('reportDate').value = date;
         }
-        showNotification('Report loaded for ' + date);
+        var totalSold = data.summary ? (data.summary.total_sold || 0) : 0;
+        showNotification('Sold report loaded for ' + date + ' (' + totalSold + ' units sold)');
     } catch (e) {
         showNotification('Error: ' + e.message, true);
         document.getElementById('emptyState').style.display = 'block';

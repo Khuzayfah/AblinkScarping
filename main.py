@@ -263,26 +263,26 @@ def _normalize_model(name: str) -> Optional[str]:
     return None
 
 
-def _build_daily_table(listings: List[VehicleListing], report_date: str) -> Dict[str, Any]:
-    """Build daily table grouped by vehicle category with numbered sub-items per model."""
-    # Aggregate by normalized model: store unique combinations of (dealer, year, depreciation)
-    agg = defaultdict(lambda: {"items": set()})
-    for L in listings:
-        model = _normalize_model(L.make_model)
+def _build_daily_table(sold_rows: list, report_date: str) -> Dict[str, Any]:
+    """Build daily table grouped by vehicle category from SOLD data only."""
+    # Aggregate by normalized model
+    agg = defaultdict(lambda: {"items": []})
+    for row in sold_rows:
+        model = _normalize_model(row.make_model)
         if not model:
             continue
 
-        dealer = (L.dealer_name or "–").strip()
-        year = L.registered_year if L.registered_year else None
-        dep = (L.depreciation or "–").strip()
-        agg[model]["items"].add((dealer, year, dep))
+        dealer = (row.dealer_name or "–").strip()
+        year = row.year_registered if row.year_registered else None
+        dep = (row.depreciation or "–").strip()
+        agg[model]["items"].append((dealer, year, dep))
 
     # Build grouped structure using VEHICLE_CATEGORIES from config
     groups = []
     for category, models in config.VEHICLE_CATEGORIES.items():
         category_items = []
         for model in models:
-            d = agg.get(model, {"items": set()})
+            d = agg.get(model, {"items": []})
             items = d["items"]
 
             if not items:
@@ -322,7 +322,7 @@ async def get_daily_report(
     date: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get daily report for a specific date or today (listings + table for UI)."""
+    """Get daily report: sold units grouped by category for a specific date or today."""
     if date:
         try:
             target_date = datetime.strptime(date, "%Y-%m-%d").date()
@@ -330,24 +330,28 @@ async def get_daily_report(
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     else:
         target_date = datetime.now().date()
-    
+
     next_date = target_date + timedelta(days=1)
-    
-    listings = db.query(VehicleListing).filter(
+
+    # Get SOLD data from SoldLog
+    sold_rows = db.query(SoldLog).filter(
         and_(
-            VehicleListing.scrape_date >= target_date,
-            VehicleListing.scrape_date < next_date
+            SoldLog.sold_date >= datetime.combine(target_date, datetime.min.time()),
+            SoldLog.sold_date < datetime.combine(next_date, datetime.min.time())
         )
     ).all()
-    
-    data = [listing.to_dict() for listing in listings]
-    summary = ExportService.generate_summary(data)
-    daily_rows = _build_daily_table(listings, target_date.isoformat())
-    
+
+    daily_rows = _build_daily_table(sold_rows, target_date.isoformat())
+
+    # Summary from sold data
+    summary = {
+        "total_sold": len(sold_rows),
+        "date": target_date.isoformat()
+    }
+
     return {
         "date": target_date.isoformat(),
         "summary": summary,
-        "listings": data,
         "daily_table": daily_rows
     }
 
@@ -386,15 +390,15 @@ async def get_sold_log(
 
 
 def _get_daily_table_for_date(target_date, db: Session) -> Dict[str, Any]:
-    """Get daily table rows for a given date."""
+    """Get daily sold table for a given date."""
     next_date = target_date + timedelta(days=1)
-    listings = db.query(VehicleListing).filter(
+    sold_rows = db.query(SoldLog).filter(
         and_(
-            VehicleListing.scrape_date >= target_date,
-            VehicleListing.scrape_date < next_date
+            SoldLog.sold_date >= datetime.combine(target_date, datetime.min.time()),
+            SoldLog.sold_date < datetime.combine(next_date, datetime.min.time())
         )
     ).all()
-    return _build_daily_table(listings, target_date.isoformat())
+    return _build_daily_table(sold_rows, target_date.isoformat())
 
 
 @app.get("/api/export/csv")
