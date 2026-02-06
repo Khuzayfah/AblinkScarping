@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
 import config
-from database import SessionLocal, VehicleListing
+from database import SessionLocal, VehicleListing, SoldLog
 
 logger = logging.getLogger("scraper")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -537,13 +537,173 @@ class SGCarMartJSScraper:
 
         if scraped_data:
             self._save_to_db(scraped_data)
-            try:
-                from sold_log_service import detect_and_log_sold
-                detect_and_log_sold()
-            except Exception as e:
-                logger.error(f"Sold log failed: {e}")
 
         return scraped_data
+
+    def scrape_sold_listings(self) -> List[Dict[str, Any]]:
+        """Scrape SOLD vehicle listings from SGCarMart (avl=s parameter)."""
+        logger.info(f"Starting SOLD scrape at {datetime.now()}")
+
+        try:
+            from curl_cffi import requests as curl_requests
+        except ImportError:
+            logger.error("curl_cffi not installed!")
+            return []
+
+        sold_data = []
+        global_dealer_map = {}
+
+        try:
+            session = curl_requests.Session(impersonate='chrome')
+
+            # Establish session
+            logger.info("[1/3] Loading homepage (establish session)...")
+            homepage_text = self._fetch_page(session, "https://www.sgcarmart.com", "homepage")
+            if not homepage_text:
+                logger.error("  FAILED: Cannot access homepage")
+                return []
+            logger.info("  OK Homepage loaded")
+            time.sleep(1)
+
+            # Search sold listings per keyword
+            logger.info("[2/3] Searching SOLD listings by keyword...")
+            seen_urls = set()
+
+            for keyword in SEARCH_KEYWORDS:
+                time.sleep(1.5)
+                query = keyword.replace(' ', '+')
+                url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&avl=s&limit=100"
+                logger.info(f"  Searching SOLD: {keyword}")
+
+                text = self._fetch_page(session, url, f"sold '{keyword}' page 1")
+                if not text:
+                    continue
+
+                listings, dealer_map = _extract_listings_from_rsc(text)
+                global_dealer_map.update(dealer_map)
+
+                # Update dealer names
+                for l in listings:
+                    if l['dealer_code'] and not l['dealer_name']:
+                        l['dealer_name'] = global_dealer_map.get(l['dealer_code'], '')
+
+                target_count = sum(1 for l in listings if self.match_target(l.get('car_model', '')))
+                total = _extract_total_from_rsc(text)
+                logger.info(f"    Found {len(listings)} sold ({target_count} targets), total: {total}")
+
+                # Add only new target items
+                for item in listings:
+                    clean_url = (item.get('link', '').split('?')[0])
+                    if clean_url and clean_url not in seen_urls:
+                        seen_urls.add(clean_url)
+                        name = item.get('car_model', '')
+                        if name and self.match_target(name):
+                            # Paginate if more results
+                            sold_data.append(item)
+
+                # Paginate if needed
+                if total > len(listings) and len(listings) > 0:
+                    total_pages = min(math.ceil(total / max(len(listings), 1)), 5)
+                    for page_num in range(2, total_pages + 1):
+                        time.sleep(2)
+                        page_url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&avl=s&limit=100&page={page_num}"
+                        page_text = self._fetch_page(session, page_url, f"sold '{keyword}' page {page_num}")
+                        if not page_text:
+                            break
+                        page_listings, pg_dm = _extract_listings_from_rsc(page_text)
+                        global_dealer_map.update(pg_dm)
+                        for l in page_listings:
+                            if l['dealer_code'] and not l['dealer_name']:
+                                l['dealer_name'] = global_dealer_map.get(l['dealer_code'], '')
+                        for item in page_listings:
+                            clean_url = (item.get('link', '').split('?')[0])
+                            if clean_url and clean_url not in seen_urls:
+                                seen_urls.add(clean_url)
+                                name = item.get('car_model', '')
+                                if name and self.match_target(name):
+                                    sold_data.append(item)
+                        if len(page_listings) == 0:
+                            break
+
+            # Step 3: Process and save
+            logger.info(f"[3/3] Processing {len(sold_data)} sold target vehicles...")
+
+            processed = []
+            for item in sold_data:
+                name = item.get('car_model', '')
+                link = item.get('link', '')
+                dealer_name = item.get('dealer_name', '')
+                dealer_code = item.get('dealer_code')
+                depreciation = item.get('depreciation')
+                reg_date = item.get('registration_date', '')
+
+                dep_str = ''
+                if depreciation is not None:
+                    dep_str = f"${depreciation:,}/yr"
+
+                if not dealer_name and dealer_code:
+                    dealer_name = global_dealer_map.get(dealer_code, '')
+
+                # Fetch detail page for missing dealer/depreciation
+                if (not dealer_name or not dep_str) and link:
+                    time.sleep(1)
+                    detail_dealer, detail_dep = self._fetch_detail_page_dealer(session, link, global_dealer_map)
+                    if detail_dealer and not dealer_name:
+                        dealer_name = detail_dealer
+                    if detail_dep and not dep_str:
+                        dep_str = detail_dep
+
+                if not dealer_name:
+                    dealer_name = '–'
+
+                processed.append({
+                    'make_model': name,
+                    'registered_year': extract_year(reg_date),
+                    'depreciation': dep_str,
+                    'dealer_name': dealer_name,
+                    'price': item.get('price'),
+                    'listing_url': link,
+                })
+                logger.info(f"  [SOLD] {name} | ${item.get('price', '?')} | {dep_str} | {dealer_name}")
+
+            logger.info("=" * 60)
+            logger.info(f"[SUCCESS] Total SOLD target vehicles: {len(processed)}")
+            logger.info("=" * 60)
+
+        except Exception as e:
+            logger.error(f"Error during sold scraping: {e}")
+            import traceback
+            traceback.print_exc()
+            processed = []
+
+        if processed:
+            self._save_sold_to_db(processed)
+
+        return processed
+
+    def _save_sold_to_db(self, data: List[Dict[str, Any]]):
+        """Save sold listings to SoldLog table."""
+        db = SessionLocal()
+        try:
+            now = datetime.now()
+            for item in data:
+                dep = item.get('depreciation', '') or '–'
+                if not dep and item.get('price') is not None:
+                    dep = f"${item['price']:,.0f}"
+                db.add(SoldLog(
+                    sold_date=now,
+                    make_model=item.get('make_model', ''),
+                    year_registered=item.get('registered_year'),
+                    depreciation=dep,
+                    dealer_name=item.get('dealer_name', '–'),
+                ))
+            db.commit()
+            logger.info(f"[OK] Saved {len(data)} sold listings to SoldLog")
+        except Exception as e:
+            logger.error(f"Error saving sold data: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
     def _fallback_playwright_scrape(self) -> List[Dict[str, Any]]:
         """Fallback to Playwright-based scraping if curl_cffi fails."""
