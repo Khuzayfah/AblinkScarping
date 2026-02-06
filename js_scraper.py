@@ -1,535 +1,539 @@
 """
-SGCarMart scraper - Updated for new Next.js site structure
-Uses undetected-playwright for Cloudflare bypass
-Navigates homepage first to establish session, then listing pages
+SGCarMart scraper - Uses curl_cffi for Cloudflare bypass
+Extracts vehicle data from Next.js RSC payload (no browser needed)
+Falls back to Playwright if curl_cffi fails
 """
 import re
 import logging
-from datetime import datetime
-from playwright.sync_api import sync_playwright
-from undetected_playwright import stealth_sync
+import math
 import time
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Tuple
+
 import config
 from database import SessionLocal, VehicleListing
 
 logger = logging.getLogger("scraper")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# JavaScript extraction for NEW SGCarMart structure (Next.js)
-# Listings are in div[id^="listing_"] containers
-EXTRACT_JS = r"""
-() => {
-    const results = [];
-    const base = 'https://www.sgcarmart.com';
-    const seen = new Set();
+# Escaped quote used in Next.js RSC payload
+BQ = '\\"'
 
-    // Strategy 1: New Next.js listing structure
-    // Each listing is in div[id="listing_N"]
-    const listings = document.querySelectorAll('[id^="listing_"]');
-
-    for (const listing of listings) {
-        try {
-            // Skip header row
-            if (listing.id === 'listing_search_grey_header') continue;
-
-            // Find the vehicle link
-            const link = listing.querySelector('a[href*="used-cars/info"]');
-            if (!link) continue;
-
-            const href = (link.getAttribute('href') || '').trim();
-            const url = href.startsWith('http') ? href : base + href;
-
-            // Remove tracking params for dedup
-            const cleanUrl = url.split('?')[0];
-            if (seen.has(cleanUrl)) continue;
-            seen.add(cleanUrl);
-
-            // Get vehicle name from the model name element
-            const nameEl = listing.querySelector('[class*="model_name"] a, [class*="modelName"] a');
-            let name = '';
-            if (nameEl) {
-                name = nameEl.textContent.trim();
-            } else {
-                // Fallback: get text from any link with used-cars/info that has text
-                const textLinks = listing.querySelectorAll('a[href*="used-cars/info"]');
-                for (const tl of textLinks) {
-                    const t = tl.textContent.trim();
-                    if (t && t.length > 3 && !t.includes('$')) {
-                        name = t;
-                        break;
-                    }
-                }
-            }
-            if (!name || name.length < 3) continue;
-
-            // Extract price from price element
-            let price = null;
-            const priceEl = listing.querySelector('[class*="price__"], [class*="Price"]');
-            if (priceEl) {
-                const priceMatch = priceEl.textContent.match(/\$([\d,]+)/);
-                if (priceMatch) {
-                    price = parseFloat(priceMatch[1].replace(/,/g, ''));
-                }
-            }
-            if (!price) {
-                const text = listing.innerText || '';
-                const pm = text.match(/\$([\d,]+)/);
-                if (pm) price = parseFloat(pm[1].replace(/,/g, ''));
-            }
-
-            // Extract depreciation
-            let depreciation = '';
-            const depEl = listing.querySelector('[class*="depreciation_text"], [class*="depreciationText"]');
-            if (depEl) {
-                depreciation = depEl.textContent.trim();
-            }
-            if (!depreciation) {
-                const text = listing.innerText || '';
-                const dm = text.match(/\$([\d,]+)\s*\/\s*yr/i);
-                if (dm) depreciation = '$' + dm[1] + '/yr';
-            }
-
-            // Extract reg date
-            let regDate = '';
-            const regEl = listing.querySelector('[class*="reg_date_te"], [class*="regDate"]');
-            if (regEl) {
-                const rdm = regEl.textContent.match(/(\d{1,2}-[A-Z][a-z]{2}-\d{4})/);
-                if (rdm) regDate = rdm[1];
-            }
-            if (!regDate) {
-                const text = listing.innerText || '';
-                const rdm = text.match(/(\d{1,2}-[A-Z][a-z]{2}-\d{4})/);
-                if (rdm) regDate = rdm[1];
-            }
-
-            // Extract dealer from tag element or listing text
-            let dealer = '';
-            const tagEl = listing.querySelector('[class*="car_tag"], [class*="carTag"]');
-            if (tagEl) {
-                const tagText = tagEl.textContent.trim();
-                if (tagText === 'Direct Owner') {
-                    dealer = 'Direct Owner';
-                } else if (tagText === 'Premium Ad' || tagText === 'PREMIUM AD') {
-                    dealer = '';  // Will be fetched from detail page
-                } else if (tagText.length > 2 && tagText.length < 100) {
-                    dealer = tagText;
-                }
-            }
-
-            // Extract dealer ID from URL
-            let dealerId = null;
-            const dlMatch = href.match(/[?&]dl=(\d+)/i);
-            if (dlMatch) dealerId = dlMatch[1];
-
-            results.push({
-                make_model: name,
-                price: price,
-                depreciation: depreciation,
-                reg_date: regDate,
-                dealer_name: dealer || '',
-                dealer_id: dealerId,
-                listing_url: url
-            });
-        } catch (e) {}
-    }
-
-    // Strategy 2: Fallback for old structure or search results
-    if (results.length === 0) {
-        const links = document.querySelectorAll('a[href*="used-cars/info/"], a[href*="info.php?ID="]');
-        for (const a of links) {
-            try {
-                const href = (a.getAttribute('href') || '').trim();
-                const url = href.startsWith('http') ? href : base + href;
-                const cleanUrl = url.split('?')[0];
-                if (seen.has(cleanUrl)) continue;
-                seen.add(cleanUrl);
-
-                const name = (a.textContent || '').trim();
-                if (!name || name.length < 3 || name.includes('$')) continue;
-
-                let text = '';
-                let container = a.closest('div[class*="listing"]') || a.closest('tr') || a.closest('div');
-                for (let i = 0; i < 5 && container; i++) {
-                    text += ' ' + (container.textContent || '');
-                    container = container.parentElement;
-                }
-
-                let price = null;
-                const pm = text.match(/\$([\d,]+)/);
-                if (pm) price = parseFloat(pm[1].replace(/,/g, ''));
-
-                let depreciation = '';
-                const dm = text.match(/\$([\d,]+)\s*\/\s*yr/i);
-                if (dm) depreciation = '$' + dm[1] + '/yr';
-
-                let regDate = '';
-                const rdm = text.match(/(\d{1,2}-[A-Z][a-z]{2}-\d{4})/);
-                if (rdm) regDate = rdm[1];
-
-                let dealerId = null;
-                const dlMatch = href.match(/[?&]dl=(\d+)/i);
-                if (dlMatch) dealerId = dlMatch[1];
-
-                results.push({
-                    make_model: name,
-                    price: price,
-                    depreciation: depreciation,
-                    reg_date: regDate,
-                    dealer_name: '',
-                    dealer_id: dealerId,
-                    listing_url: url
-                });
-            } catch (e) {}
-        }
-    }
-
-    return results;
-}
-"""
-
-# Detail page extraction JS (for dealer name and depreciation)
-DETAIL_EXTRACT_JS = r"""
-() => {
-    const bodyText = document.body.textContent || '';
-    const pageTitle = document.title || '';
-
-    // Extract depreciation
-    let depreciation = '';
-    // Method 1: From depreciation element (new site)
-    const depEl = document.querySelector('[class*="depreciation_text"], [class*="depreciationText"], [class*="depreciation"]');
-    if (depEl) {
-        const dm = depEl.textContent.match(/\$([\d,]+)\s*\/\s*yr/i);
-        if (dm) depreciation = '$' + dm[1] + '/yr';
-    }
-    // Method 2: Near "Depreciation" label
-    if (!depreciation) {
-        const dm = bodyText.match(/Depreciation[^\$]*\$([\d,]+)\s*\/\s*yr/i);
-        if (dm) depreciation = '$' + dm[1] + '/yr';
-    }
-    // Method 3: First match in body
-    if (!depreciation) {
-        const dm = bodyText.match(/\$([\d,]+)\s*\/\s*yr/i);
-        if (dm) depreciation = '$' + dm[1] + '/yr';
-    }
-
-    // Extract dealer name
-    let dealer = '';
-
-    // Method 1: From page title - "Used 2019 Toyota Hiace for Sale | Dealer - Sgcarmart"
-    const titleMatch = pageTitle.match(/\|\s*(.+?)\s*-\s*Sgcarmart/i);
-    if (titleMatch) {
-        dealer = titleMatch[1].trim();
-    }
-
-    // Method 2: Check for Direct Owner tag
-    if (!dealer || dealer.length < 3) {
-        const tagEl = document.querySelector('[class*="car_tag"], [class*="carTag"]');
-        if (tagEl && tagEl.textContent.trim().toLowerCase().includes('direct owner')) {
-            dealer = 'Direct Owner';
-        }
-    }
-
-    // Method 3: Dealer link
-    if (!dealer || dealer.length < 3) {
-        const dealerLinks = document.querySelectorAll('a[href*="DL="], a[href*="dl="]');
-        for (const link of dealerLinks) {
-            const text = (link.textContent || '').trim();
-            if (text && text.length > 3 && text.length < 100 &&
-                !text.includes('Printable') && !text.includes('Version') &&
-                !text.includes('Search') && !text.includes('$')) {
-                dealer = text;
-                break;
-            }
-        }
-    }
-
-    // Clean dealer name
-    if (dealer) {
-        dealer = dealer.replace(/\s+/g, ' ').trim();
-        dealer = dealer.replace(/\s*Pte\.?\s*Ltd\.?.*$/i, ' Pte Ltd').trim();
-        dealer = dealer.replace(/[,;.\s]+$/, '').trim();
-        if (dealer.length > 80) dealer = dealer.substring(0, 80).trim();
-    }
-
-    return {depreciation, dealer};
-}
-"""
+# Search keywords for commercial vehicles
+SEARCH_KEYWORDS = [
+    "Toyota Hiace",
+    "Hino Dutro",
+    "Hino XZU",
+    "Toyota Dyna",
+    "Nissan NV350",
+    "Nissan NV200",
+    "Nissan Cabstar",
+    "Isuzu NPR",
+    "Isuzu NMR",
+    "Isuzu NNR",
+    "Isuzu NHR",
+    "Honda N-VAN",
+    "Mitsubishi Fuso",
+    "Mitsubishi FEA",
+    "Kia K2500",
+]
 
 
-def extract_year(reg_date):
+def extract_year(reg_date: Optional[str]) -> Optional[int]:
+    """Extract year from registration date string like '08-Dec-2017'."""
     if not reg_date:
         return None
-    m = re.search(r'\d{1,2}-\w{3}-(\d{2,4})', reg_date)
+    m = re.search(r'(\d{4})', reg_date)
+    if m:
+        return int(m.group(1))
+    m = re.search(r'\d{1,2}-\w{3}-(\d{2})', reg_date)
     if m:
         y = int(m.group(1))
-        return y if y > 100 else (2000 + y if y < 50 else 1900 + y)
+        return 2000 + y if y < 50 else 1900 + y
     return None
 
 
-def wait_for_cloudflare(page, timeout=30):
-    """Wait for Cloudflare challenge to resolve."""
-    for i in range(timeout // 3):
-        title = page.title()
-        body_text = page.evaluate("() => (document.body ? document.body.textContent : '').substring(0, 200)")
-        if 'moment' not in title.lower() and 'Verifying you are human' not in body_text:
-            return True
-        logger.info(f"  Cloudflare challenge active, waiting... ({i*3}s)")
-        time.sleep(3)
-    return False
+def _extract_rsc_str(text: str, field: str, start: int, end: int) -> Optional[str]:
+    """Extract a string field value from RSC payload text."""
+    prefix = BQ + field + BQ + ':' + BQ
+    idx = text.find(prefix, start, end)
+    if idx < 0:
+        return None
+    val_start = idx + len(prefix)
+    val_end = text.find(BQ, val_start)
+    if val_end < 0 or val_end > end:
+        return None
+    return text[val_start:val_end]
+
+
+def _extract_rsc_num(text: str, field: str, start: int, end: int) -> Optional[int]:
+    """Extract a numeric field value from RSC payload text."""
+    prefix = BQ + field + BQ + ':'
+    idx = text.find(prefix, start, end)
+    if idx < 0:
+        return None
+    val_start = idx + len(prefix)
+    digits = ''
+    for c in text[val_start:val_start + 20]:
+        if c.isdigit():
+            digits += c
+        else:
+            break
+    return int(digits) if digits else None
+
+
+def _extract_rsc_nullable(text: str, field: str, start: int, end: int) -> Optional[str]:
+    """Extract a field that might be null."""
+    prefix = BQ + field + BQ + ':'
+    idx = text.find(prefix, start, end)
+    if idx < 0:
+        return None
+    val_start = idx + len(prefix)
+    # Check if null
+    if text[val_start:val_start + 4] == 'null':
+        return None
+    # Check if string
+    if text[val_start:val_start + 1] == BQ[0] and text[val_start + 1:val_start + 2] == BQ[1]:
+        actual_start = val_start + 2
+        val_end = text.find(BQ, actual_start)
+        if val_end >= 0 and val_end <= end:
+            return text[actual_start:val_end]
+    return None
+
+
+def _build_dealer_map(text: str) -> Dict[int, str]:
+    """Build dealer code -> dealer name mapping from RSC payload.
+
+    The RSC payload contains dealer data in format:
+    \\"value\\":CODE,\\"text\\":\\"NAME\\"
+
+    We filter out non-dealer entries (price ranges etc).
+    """
+    dealer_map = {}
+    pos = 0
+    prefix = BQ + 'value' + BQ + ':'
+    text_prefix = BQ + 'text' + BQ + ':' + BQ
+
+    while True:
+        idx = text.find(prefix, pos)
+        if idx < 0:
+            break
+
+        # Extract the numeric value
+        val_start = idx + len(prefix)
+        digits = ''
+        for c in text[val_start:val_start + 10]:
+            if c.isdigit():
+                digits += c
+            else:
+                break
+
+        if not digits:
+            pos = idx + 10
+            continue
+
+        code = int(digits)
+
+        # Extract the text value
+        text_idx = text.find(text_prefix, val_start, val_start + 100)
+        if text_idx >= 0:
+            name_start = text_idx + len(text_prefix)
+            name_end = text.find(BQ, name_start)
+            if name_end >= 0:
+                name = text[name_start:name_end]
+                # Filter: real dealers have names without $ and with letters
+                if name and not name.startswith('$') and any(c.isalpha() for c in name) and code > 0:
+                    dealer_map[code] = name
+
+        pos = idx + 10
+
+    return dealer_map
+
+
+def _extract_listings_from_rsc(text: str) -> Tuple[List[Dict[str, Any]], Dict[int, str]]:
+    """Extract all vehicle listings from Next.js RSC payload.
+
+    Returns (listings, dealer_map)
+    """
+    # Build dealer name mapping
+    dealer_map = _build_dealer_map(text)
+
+    # Find each listing by looking for link field with sgcarmart info URL
+    link_prefix = BQ + 'link' + BQ + ':' + BQ + 'https://www.sgcarmart.com/used-cars/info/'
+
+    listings = []
+    seen_urls = set()
+    pos = 0
+
+    while True:
+        idx = text.find(link_prefix, pos)
+        if idx < 0:
+            break
+
+        # Define block boundaries for this listing (look back and forward)
+        block_start = max(0, idx - 100)
+        block_end = min(len(text), idx + 2000)
+
+        # Extract all fields
+        link = _extract_rsc_str(text, 'link', block_start, block_end)
+        car_model = _extract_rsc_str(text, 'car_model', block_start, block_end)
+        reg_date = _extract_rsc_str(text, 'registration_date', block_start, block_end)
+        price = _extract_rsc_num(text, 'price', block_start, block_end)
+        depreciation = _extract_rsc_num(text, 'depreciation', block_start, block_end)
+        dealer_code = _extract_rsc_num(text, 'dealer_code', block_start, block_end)
+        listing_id = _extract_rsc_num(text, 'id', block_start, block_end)
+
+        # Skip invalid entries (script tags, broken data)
+        if car_model and not any(s in car_model for s in ['</', 'script', 'self.', '__next']):
+            # Dedup by URL
+            clean_url = (link or '').split('?')[0]
+            if clean_url and clean_url not in seen_urls:
+                seen_urls.add(clean_url)
+
+                # Get dealer name from map
+                dealer_name = ''
+                if dealer_code:
+                    dealer_name = dealer_map.get(dealer_code, '')
+
+                listings.append({
+                    'id': listing_id,
+                    'car_model': car_model,
+                    'price': price,
+                    'depreciation': depreciation,
+                    'registration_date': reg_date,
+                    'dealer_code': dealer_code,
+                    'dealer_name': dealer_name,
+                    'link': link,
+                })
+
+        pos = idx + 100
+
+    return listings, dealer_map
+
+
+def _extract_total_from_rsc(text: str) -> int:
+    """Extract total result count from RSC payload."""
+    # Look for \"total\":NUMBER pattern
+    prefix = BQ + 'total' + BQ + ':'
+    idx = text.find(prefix)
+    if idx >= 0:
+        val_start = idx + len(prefix)
+        digits = ''
+        for c in text[val_start:val_start + 10]:
+            if c.isdigit():
+                digits += c
+            else:
+                break
+        if digits:
+            return int(digits)
+    return 0
 
 
 class SGCarMartJSScraper:
-    """SGCarMart scraper with Cloudflare bypass - updated for Next.js site"""
+    """SGCarMart scraper using curl_cffi for Cloudflare bypass."""
 
     def __init__(self, headless=True):
         self.url = config.COMMERCIAL_LISTING_URL
         self.target_vehicles = config.TARGET_VEHICLES
         self.headless = headless
 
-    def normalize(self, s):
+    def normalize(self, s: str) -> str:
         return re.sub(r'\s+', ' ', (s or '').upper().strip())
 
-    def match_target(self, name):
+    def match_target(self, name: str) -> bool:
+        """Check if a vehicle name matches our target commercial vehicles.
+
+        Only matches vehicles from the target list:
+        HINO DUTRO, HINO XZU710, TOYOTA DYNA, TOYOTA HIACE,
+        NISSAN CABSTAR, NISSAN NV350, NISSAN NV200,
+        ISUZU NHR/NJR/NPR/NMR/NNR, MITSUBISHI FEA, KIA 2500,
+        HONDA N-VAN
+        """
         n = self.normalize(name)
+        if not n:
+            return False
+
         # Check exact target vehicles
         if any(self.normalize(t) in n or n in self.normalize(t) for t in self.target_vehicles):
             return True
-        # Also match commercial vehicle brands/models (specific matching)
-        # These keywords must appear with their brand context to avoid false positives
-        commercial_keywords = [
-            'HIACE', 'HINO', 'DYNA', 'DUTRO', 'CABSTAR',
-            'NV350', 'NV200', 'N-VAN',
-            'ISUZU NPR', 'ISUZU NMR', 'ISUZU NNR', 'ISUZU NHR', 'ISUZU NJR',
-            'MITSUBISHI FEA', 'KIA 2500', 'KIA K2500'
+
+        # Check brand+model commercial vehicle keywords
+        # Each keyword requires BOTH the brand AND model to be present
+        brand_model_rules = [
+            # (brand, model_keywords) - brand AND at least one model keyword must match
+            ('TOYOTA', ['HIACE', 'DYNA']),
+            ('HINO', ['DUTRO', 'XZU']),
+            ('NISSAN', ['CABSTAR', 'NV350', 'NV200']),
+            ('ISUZU', ['NPR', 'NMR', 'NNR', 'NHR', 'NJR']),
+            ('MITSUBISHI', ['FEA']),
+            ('KIA', ['2500', 'K2500']),
+            ('HONDA', ['N-VAN']),
         ]
-        return any(keyword in n for keyword in commercial_keywords)
 
-    def _navigate_with_cf_bypass(self, page, url, max_retries=2):
-        """Navigate to URL with Cloudflare bypass. Returns True if successful."""
-        for attempt in range(max_retries):
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                time.sleep(3)
-
-                title = page.title()
-                if 'moment' in title.lower() or title == '':
-                    logger.info(f"  Cloudflare challenge detected (attempt {attempt+1})")
-                    if wait_for_cloudflare(page, timeout=30):
+        for brand, models in brand_model_rules:
+            if brand in n:
+                for model in models:
+                    if model in n:
                         return True
-                    # Go back to homepage and try again
-                    if attempt < max_retries - 1:
-                        logger.info("  Retrying via homepage...")
-                        page.goto("https://www.sgcarmart.com", wait_until="domcontentloaded", timeout=30000)
-                        time.sleep(5)
-                        continue
-                    return False
-                return True
-            except Exception as e:
-                logger.error(f"  Navigation error: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(3)
-                    continue
-                return False
+
         return False
 
-    def scrape_vehicle_listings(self):
+    def _fetch_page(self, session, url: str, description: str = '') -> Optional[str]:
+        """Fetch a page with curl_cffi, handling errors."""
+        try:
+            r = session.get(url, timeout=30)
+            if r.status_code == 200:
+                # Check for Cloudflare challenge
+                if 'Just a moment' in r.text[:500] or 'Verifying you are human' in r.text[:500]:
+                    logger.warning(f"  Cloudflare challenge on {description}")
+                    return None
+                return r.text
+            else:
+                logger.warning(f"  HTTP {r.status_code} on {description}")
+                return None
+        except Exception as e:
+            logger.error(f"  Fetch error on {description}: {e}")
+            return None
+
+    def _scrape_search_keyword(self, session, keyword: str, dealer_map: Dict[int, str]) -> List[Dict[str, Any]]:
+        """Search for a specific keyword and extract all pages of results."""
+        all_listings = []
+        query = keyword.replace(' ', '+')
+
+        # First page with limit=100
+        url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&limit=100"
+        logger.info(f"  Searching: {keyword}")
+
+        text = self._fetch_page(session, url, f"search '{keyword}' page 1")
+        if not text:
+            return []
+
+        # Extract listings
+        listings, page_dealer_map = _extract_listings_from_rsc(text)
+        dealer_map.update(page_dealer_map)
+
+        # Update dealer names for listings
+        for l in listings:
+            if l['dealer_code'] and not l['dealer_name']:
+                l['dealer_name'] = dealer_map.get(l['dealer_code'], '')
+
+        all_listings.extend(listings)
+
+        # Check total and paginate if needed
+        total = _extract_total_from_rsc(text)
+        if total > 0 and len(listings) > 0:
+            total_pages = math.ceil(total / max(len(listings), 1))
+            total_pages = min(total_pages, 10)  # Max 10 pages per keyword
+
+            target_in_page = sum(1 for l in listings if self.match_target(l['car_model']))
+            logger.info(f"    Page 1: {len(listings)} listings ({target_in_page} targets), total: {total}")
+
+            for page_num in range(2, total_pages + 1):
+                time.sleep(2)  # Be polite
+                page_url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&limit=100&page={page_num}"
+                page_text = self._fetch_page(session, page_url, f"search '{keyword}' page {page_num}")
+                if not page_text:
+                    break
+
+                page_listings, pg_dm = _extract_listings_from_rsc(page_text)
+                dealer_map.update(pg_dm)
+                for l in page_listings:
+                    if l['dealer_code'] and not l['dealer_name']:
+                        l['dealer_name'] = dealer_map.get(l['dealer_code'], '')
+
+                target_count = sum(1 for l in page_listings if self.match_target(l['car_model']))
+                logger.info(f"    Page {page_num}: {len(page_listings)} listings ({target_count} targets)")
+                all_listings.extend(page_listings)
+
+                if len(page_listings) == 0:
+                    break
+        else:
+            target_in_page = sum(1 for l in listings if self.match_target(l['car_model']))
+            logger.info(f"    Got {len(listings)} listings ({target_in_page} targets)")
+
+        return all_listings
+
+    def _fetch_detail_page_dealer(self, session, url: str, dealer_map: Dict[int, str]) -> Tuple[str, str]:
+        """Fetch detail page to get dealer name and depreciation if missing."""
+        try:
+            text = self._fetch_page(session, url, "detail page")
+            if not text:
+                return '', ''
+
+            # Extract dealer from page title: "Used 2019 Toyota Hiace for Sale | DEALER - Sgcarmart"
+            title_match = re.search(r'<title>([^<]+)</title>', text)
+            dealer = ''
+            if title_match:
+                title = title_match.group(1)
+                m = re.search(r'\|\s*(.+?)\s*-\s*Sgcarmart', title, re.IGNORECASE)
+                if m:
+                    dealer = m.group(1).strip()
+
+            # Extract depreciation
+            dep = ''
+            dep_match = re.search(r'\$\s*([\d,]+)\s*/\s*yr', text)
+            if dep_match:
+                dep = '$' + dep_match.group(1) + '/yr'
+
+            return dealer, dep
+        except Exception as e:
+            logger.error(f"    Detail page error: {e}")
+            return '', ''
+
+    def scrape_vehicle_listings(self) -> List[Dict[str, Any]]:
+        """Main scraping method using curl_cffi for Cloudflare bypass."""
         logger.info(f"Starting scrape at {datetime.now()}")
-        logger.info("Using undetected-playwright for Cloudflare bypass...")
+        logger.info("Using curl_cffi with Chrome impersonation for Cloudflare bypass...")
+
+        try:
+            from curl_cffi import requests as curl_requests
+        except ImportError:
+            logger.error("curl_cffi not installed! Run: pip install curl_cffi")
+            logger.info("Falling back to Playwright...")
+            return self._fallback_playwright_scrape()
+
         scraped_data = []
+        global_dealer_map = {}
 
-        with sync_playwright() as p:
-            logger.info("[1/4] Launching browser...")
-            browser = p.chromium.launch(
-                headless=self.headless,
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--disable-gpu'
-                ]
-            )
+        try:
+            session = curl_requests.Session(impersonate='chrome')
 
-            context = browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                locale="en-SG"
-            )
-            page = context.new_page()
+            # Step 1: Establish session via homepage
+            logger.info("[1/4] Loading homepage (establish session)...")
+            homepage_text = self._fetch_page(session, "https://www.sgcarmart.com", "homepage")
+            if not homepage_text:
+                logger.error("  FAILED: Cannot access homepage")
+                logger.info("  Falling back to Playwright...")
+                return self._fallback_playwright_scrape()
 
-            logger.info("  Applying stealth mode...")
-            stealth_sync(page)
+            logger.info("  OK Homepage loaded")
+            time.sleep(1)
 
-            try:
-                # Step 1: Homepage first (CRITICAL for Cloudflare bypass)
-                logger.info("[2/4] Loading homepage (establish session)...")
-                page.goto("https://www.sgcarmart.com", wait_until="domcontentloaded", timeout=30000)
-                time.sleep(5)
+            # Step 2: Try commercial vehicle listing page first
+            logger.info("[2/4] Loading commercial vehicle listings...")
+            listing_url = "https://www.sgcarmart.com/used-cars/listing?veh=1&limit=100"
+            listing_text = self._fetch_page(session, listing_url, "commercial listing")
 
-                title1 = page.title()
-                if 'moment' in title1.lower():
-                    logger.warning("  Homepage blocked by Cloudflare - waiting...")
-                    if not wait_for_cloudflare(page):
-                        logger.error("  FAILED: Cannot bypass Cloudflare on homepage")
-                        return []
-                    title1 = page.title()
+            all_raw_items = []
 
-                logger.info(f"  OK Homepage: {title1[:50]}")
+            if listing_text:
+                listings, dealer_map = _extract_listings_from_rsc(listing_text)
+                global_dealer_map.update(dealer_map)
+                total = _extract_total_from_rsc(listing_text)
+                target_count = sum(1 for l in listings if self.match_target(l['car_model']))
+                logger.info(f"  Listing page: {len(listings)} items ({target_count} targets), total on site: {total}")
+                all_raw_items.extend(listings)
 
-                # Step 2: Navigate to listing page with commercial vehicles
-                logger.info("[3/4] Loading commercial vehicle listings...")
-
-                # Try the listing page first (all used cars)
-                all_raw_items = []
-
-                # Approach: Use listing page with pagination
-                # The listing page shows 20 items per page by default
-                listing_url = "https://www.sgcarmart.com/used-cars/listing"
-                if not self._navigate_with_cf_bypass(page, listing_url):
-                    logger.error("  FAILED: Cannot access listing page")
-                    # Fallback: try search approach
-                    logger.info("  Falling back to search approach...")
-                    all_raw_items = self._search_approach(page)
-                else:
-                    page_title = page.title()
-                    logger.info(f"  OK Listing page: {page_title[:60]}")
-
-                    # Extract from listing page - first check total count
-                    total_text = page.evaluate("() => document.body.innerText.match(/(\\d[\\d,]*)\\s*Vehicle/)?.[1] || '0'")
-                    logger.info(f"  Total vehicles on site: {total_text}")
-
-                    # Extract from current page
-                    time.sleep(3)
-                    raw = page.evaluate(EXTRACT_JS)
-                    logger.info(f"  Page 1: extracted {len(raw)} items")
-                    all_raw_items.extend(raw)
-
-                    # Click through pages to find commercial vehicles
-                    # Pagination: click "Next" button
-                    max_pages = 50  # Limit to avoid infinite loop
-                    for page_num in range(2, max_pages + 1):
-                        # Check if we have enough target vehicles
-                        target_count = sum(1 for item in all_raw_items if self.match_target(item.get("make_model", "")))
-                        if target_count >= 100:
-                            logger.info(f"  Found {target_count} target vehicles, stopping pagination")
+                # Paginate if there are more
+                if total > len(listings):
+                    pages_needed = min(math.ceil(total / max(len(listings), 1)), 20)
+                    for page_num in range(2, pages_needed + 1):
+                        time.sleep(2)
+                        page_url = f"https://www.sgcarmart.com/used-cars/listing?veh=1&limit=100&page={page_num}"
+                        page_text = self._fetch_page(session, page_url, f"listing page {page_num}")
+                        if not page_text:
+                            break
+                        page_listings, pg_dm = _extract_listings_from_rsc(page_text)
+                        global_dealer_map.update(pg_dm)
+                        new_targets = sum(1 for l in page_listings if self.match_target(l['car_model']))
+                        logger.info(f"  Page {page_num}: {len(page_listings)} items ({new_targets} targets)")
+                        all_raw_items.extend(page_listings)
+                        if len(page_listings) == 0:
                             break
 
-                        try:
-                            # Click "Next" button
-                            next_btn = page.query_selector('button:has-text("Next")')
-                            if not next_btn:
-                                logger.info(f"  No 'Next' button found, stopping at page {page_num - 1}")
-                                break
+            # Step 3: Search by keyword for each vehicle type
+            logger.info("[3/4] Searching by keyword for commercial vehicles...")
+            seen_urls = {(l.get('link', '').split('?')[0]) for l in all_raw_items if l.get('link')}
 
-                            next_btn.click()
-                            time.sleep(4)
+            for keyword in SEARCH_KEYWORDS:
+                time.sleep(1.5)  # Rate limiting
+                keyword_items = self._scrape_search_keyword(session, keyword, global_dealer_map)
 
-                            # Check if page changed (new listings loaded)
-                            raw = page.evaluate(EXTRACT_JS)
-                            if not raw:
-                                logger.info(f"  Page {page_num}: no items, stopping")
-                                break
+                # Add only new items
+                new_count = 0
+                for item in keyword_items:
+                    clean_url = (item.get('link', '').split('?')[0])
+                    if clean_url and clean_url not in seen_urls:
+                        seen_urls.add(clean_url)
+                        all_raw_items.append(item)
+                        new_count += 1
 
-                            new_count = len(raw)
-                            new_targets = sum(1 for item in raw if self.match_target(item.get("make_model", "")))
-                            all_raw_items.extend(raw)
-                            logger.info(f"  Page {page_num}: {new_count} items ({new_targets} targets)")
+                if new_count > 0:
+                    logger.info(f"    +{new_count} new items from '{keyword}'")
 
-                        except Exception as e:
-                            logger.error(f"  Page {page_num} error: {e}")
-                            break
+            # Step 4: Process and filter target vehicles
+            logger.info(f"[4/4] Processing {len(all_raw_items)} total items...")
 
-                    # If not enough targets found via listing, also try search
-                    target_count = sum(1 for item in all_raw_items if self.match_target(item.get("make_model", "")))
-                    if target_count < 5:
-                        logger.info(f"  Only {target_count} targets from listing pages. Trying search approach...")
-                        search_items = self._search_approach(page)
-                        all_raw_items.extend(search_items)
+            for item in all_raw_items:
+                name = item.get('car_model', '')
+                if not name or not self.match_target(name):
+                    continue
 
-                # Step 3: Process all extracted items
-                logger.info(f"[4/4] Processing {len(all_raw_items)} total items...")
+                link = item.get('link', '')
+                dealer_name = item.get('dealer_name', '')
+                dealer_code = item.get('dealer_code')
+                depreciation = item.get('depreciation')
+                reg_date = item.get('registration_date', '')
 
-                for idx, item in enumerate(all_raw_items):
-                    name = item.get("make_model") or ""
-                    if not name:
-                        continue
+                # Format depreciation
+                dep_str = ''
+                if depreciation is not None:
+                    dep_str = f"${depreciation:,}/yr"
 
-                    if idx < 5:
-                        logger.info(f"    Item {idx+1}: {name[:60]}")
+                # If dealer name is missing, try to get from dealer map or detail page
+                if not dealer_name and dealer_code:
+                    dealer_name = global_dealer_map.get(dealer_code, '')
 
-                    if not self.match_target(name):
-                        continue
+                if not dealer_name and link:
+                    # Fetch detail page for dealer name (with rate limiting)
+                    time.sleep(1)
+                    detail_dealer, detail_dep = self._fetch_detail_page_dealer(session, link, global_dealer_map)
+                    if detail_dealer:
+                        dealer_name = detail_dealer
+                        logger.info(f"    Detail: {name[:40]} -> Dealer: {dealer_name}")
+                    if detail_dep and not dep_str:
+                        dep_str = detail_dep
 
-                    dealer_name = item.get("dealer_name") or ""
-                    dealer_id = item.get("dealer_id")
-                    depreciation = item.get("depreciation") or ""
-                    listing_url = item.get("listing_url") or ""
+                # Skip rental listings
+                if '/car_rental/' in link:
+                    continue
 
-                    # Skip rental/lease listings
-                    if "/car_rental/" in listing_url:
-                        logger.info(f"  [SKIP] Rental: {name[:50]}")
-                        continue
+                if not dealer_name:
+                    dealer_name = '–'
 
-                    # If dealer or depreciation missing, fetch from detail page
-                    if (not dealer_name or dealer_name == "–" or not depreciation) and listing_url:
-                        try:
-                            # Remove tracking params
-                            clean_url = listing_url.split('?')[0]
-                            logger.info(f"    Fetching details: {clean_url[-50:]}...")
-                            time.sleep(1)
+                scraped_data.append({
+                    'make_model': name,
+                    'registered_year': extract_year(reg_date),
+                    'depreciation': dep_str,
+                    'dealer_name': dealer_name,
+                    'price': item.get('price'),
+                    'listing_url': link,
+                    'additional_info': reg_date or '',
+                })
 
-                            if self._navigate_with_cf_bypass(page, clean_url):
-                                time.sleep(2)
-                                details = page.evaluate(DETAIL_EXTRACT_JS)
+                status = "OK" if dealer_name != '–' else "!"
+                logger.info(f"  [{status}] {name} - ${item.get('price')} - {dep_str} - {dealer_name}")
 
-                                if details.get('depreciation'):
-                                    depreciation = details['depreciation']
-                                if details.get('dealer') and len(details['dealer']) > 2:
-                                    dealer_name = details['dealer']
-                                    logger.info(f"      OK Dealer: {dealer_name}, Deprec: {depreciation}")
-                            else:
-                                logger.warning(f"      Cannot access detail page")
-                        except Exception as e:
-                            logger.error(f"      Detail error: {e}")
+            # Deduplicate by listing URL
+            seen = set()
+            unique = []
+            for item in scraped_data:
+                key = (item.get('listing_url', '').split('?')[0])
+                if not key:
+                    key = f"{item.get('make_model', '')}_{item.get('price', 0)}"
+                if key and key not in seen:
+                    seen.add(key)
+                    unique.append(item)
+            scraped_data = unique
 
-                    if not dealer_name:
-                        dealer_name = "–"
+            logger.info("=" * 60)
+            logger.info(f"[SUCCESS] Total target vehicles found: {len(scraped_data)}")
+            logger.info("=" * 60)
 
-                    scraped_data.append({
-                        "make_model": name,
-                        "registered_year": extract_year(item.get("reg_date")),
-                        "depreciation": depreciation,
-                        "dealer_name": dealer_name,
-                        "price": item.get("price"),
-                        "listing_url": listing_url,
-                        "additional_info": item.get("reg_date") or "",
-                    })
-
-                    status = "OK" if dealer_name != "–" else "!"
-                    logger.info(f"  [{status}] {name} - ${item.get('price')} - {dealer_name}")
-
-                # Dedupe by listing URL
-                seen = set()
-                unique = []
-                for item in scraped_data:
-                    key = (item.get("listing_url") or "").split('?')[0]
-                    if not key:
-                        key = f"{item.get('make_model', '')}_{item.get('price', 0)}"
-                    if key and key not in seen:
-                        seen.add(key)
-                        unique.append(item)
-                scraped_data = unique
-
-                logger.info(f"{'='*60}")
-                logger.info(f"[SUCCESS] Total target vehicles found: {len(scraped_data)}")
-                logger.info(f"{'='*60}")
-
-            except Exception as e:
-                logger.error(f"Error during scraping: {e}")
-                import traceback
-                traceback.print_exc()
-            finally:
-                browser.close()
+        except Exception as e:
+            logger.error(f"Error during scraping: {e}")
+            import traceback
+            traceback.print_exc()
 
         if scraped_data:
             self._save_to_db(scraped_data)
@@ -541,57 +545,118 @@ class SGCarMartJSScraper:
 
         return scraped_data
 
-    def _search_approach(self, page):
-        """Fallback: search for each vehicle keyword individually."""
-        logger.info("  Using search-by-keyword approach...")
-        all_items = []
+    def _fallback_playwright_scrape(self) -> List[Dict[str, Any]]:
+        """Fallback to Playwright-based scraping if curl_cffi fails."""
+        logger.info("Attempting Playwright fallback...")
+        try:
+            from playwright.sync_api import sync_playwright
+            from undetected_playwright import stealth_sync
+        except ImportError:
+            logger.error("Playwright not available for fallback")
+            return []
 
-        search_keywords = [
-            "Toyota Hiace",
-            "Hino Dutro",
-            "Toyota Dyna",
-            "Nissan NV350",
-            "Nissan NV200",
-            "Nissan Cabstar",
-            "Isuzu NPR",
-            "Isuzu NMR",
-            "Honda N-VAN"
-        ]
+        scraped_data = []
 
-        for keyword in search_keywords:
+        with sync_playwright() as p:
+            logger.info("  Launching Chromium...")
+            browser = p.chromium.launch(
+                headless=self.headless,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                ]
+            )
+            context = browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                locale="en-SG"
+            )
+            page = context.new_page()
+            stealth_sync(page)
+
             try:
-                logger.info(f"  Searching: {keyword}")
-
-                # Navigate back to homepage first to maintain session
+                # Visit homepage first
                 page.goto("https://www.sgcarmart.com", wait_until="domcontentloaded", timeout=30000)
-                time.sleep(3)
+                time.sleep(5)
 
-                # Then go to search/listing
-                search_url = f"https://www.sgcarmart.com/search?q={keyword.replace(' ', '+')}"
-                if not self._navigate_with_cf_bypass(page, search_url):
-                    # Try listing page as fallback
-                    logger.info(f"    Search blocked, trying listing page...")
-                    listing_url = f"https://www.sgcarmart.com/used-cars/listing"
-                    if not self._navigate_with_cf_bypass(page, listing_url):
-                        logger.warning(f"    Cannot access any listing page for {keyword}")
+                # Search each keyword
+                for keyword in SEARCH_KEYWORDS:
+                    query = keyword.replace(' ', '+')
+                    url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&limit=100"
+                    logger.info(f"  Playwright search: {keyword}")
+
+                    try:
+                        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                        time.sleep(5)
+
+                        # Wait for content to render
+                        page.wait_for_selector('a[href*="used-cars/info"]', timeout=10000)
+
+                        # Get page source after JS rendering
+                        content = page.content()
+                        listings, _ = _extract_listings_from_rsc(content)
+
+                        if not listings:
+                            # Try evaluating JS
+                            listings_js = page.evaluate("""
+                                () => {
+                                    const results = [];
+                                    const links = document.querySelectorAll('a[href*="used-cars/info"]');
+                                    for (const a of links) {
+                                        const href = a.getAttribute('href') || '';
+                                        const text = (a.textContent || '').trim();
+                                        if (text && text.length > 3 && !text.includes('$')) {
+                                            results.push({
+                                                car_model: text,
+                                                link: href.startsWith('http') ? href : 'https://www.sgcarmart.com' + href,
+                                                price: null,
+                                                depreciation: null,
+                                                registration_date: null,
+                                                dealer_code: null,
+                                                dealer_name: ''
+                                            });
+                                        }
+                                    }
+                                    return results;
+                                }
+                            """)
+                            listings = listings_js or []
+
+                        target_count = sum(1 for l in listings if self.match_target(l.get('car_model', '')))
+                        logger.info(f"    Found {len(listings)} items ({target_count} targets)")
+
+                        for item in listings:
+                            name = item.get('car_model', '')
+                            if name and self.match_target(name):
+                                dep = item.get('depreciation')
+                                dep_str = f"${dep:,}/yr" if dep else ''
+                                scraped_data.append({
+                                    'make_model': name,
+                                    'registered_year': extract_year(item.get('registration_date')),
+                                    'depreciation': dep_str,
+                                    'dealer_name': item.get('dealer_name', '–'),
+                                    'price': item.get('price'),
+                                    'listing_url': item.get('link', ''),
+                                    'additional_info': item.get('registration_date', ''),
+                                })
+                    except Exception as e:
+                        logger.error(f"    Playwright search error: {e}")
                         continue
-                    time.sleep(3)
-
-                time.sleep(3)
-
-                # Extract
-                raw = page.evaluate(EXTRACT_JS)
-                target_count = sum(1 for item in raw if self.match_target(item.get("make_model", "")))
-                logger.info(f"    Extracted {len(raw)} items ({target_count} targets)")
-                all_items.extend(raw)
 
             except Exception as e:
-                logger.error(f"    Search error for {keyword}: {e}")
-                continue
+                logger.error(f"Playwright error: {e}")
+            finally:
+                browser.close()
 
-        return all_items
+        if scraped_data:
+            self._save_to_db(scraped_data)
 
-    def _save_to_db(self, data):
+        return scraped_data
+
+    def _save_to_db(self, data: List[Dict[str, Any]]):
+        """Save scraped data to database."""
         db = SessionLocal()
         try:
             for item in data:
@@ -618,4 +683,7 @@ if __name__ == "__main__":
     import sys
     headless = "--headed" not in sys.argv
     scraper = SGCarMartJSScraper(headless=headless)
-    scraper.scrape_vehicle_listings()
+    results = scraper.scrape_vehicle_listings()
+    print(f"\nTotal results: {len(results)}")
+    for r in results:
+        print(f"  {r['make_model']} | ${r.get('price', '?')} | {r.get('depreciation', '?')} | {r.get('dealer_name', '?')}")
