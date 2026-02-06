@@ -181,6 +181,11 @@ async function loadDailyReport() {
             document.getElementById('reportDate').value = date;
         }
         var totalSold = data.summary ? (data.summary.total_sold || 0) : 0;
+        var badge = document.getElementById('soldCountBadge');
+        if (badge) {
+            badge.textContent = totalSold + ' sold';
+            badge.style.display = totalSold > 0 ? 'inline-block' : 'none';
+        }
         showNotification('Sold report loaded for ' + date + ' (' + totalSold + ' units sold)');
     } catch (e) {
         showNotification('Error: ' + e.message, true);
@@ -214,6 +219,7 @@ async function triggerScrape() {
                 btn.disabled = false;
                 loadStatus();
                 loadDailyReport();
+                loadHistory();
                 showNotification('Scraping completed.');
             }
         }, 3000);
@@ -237,6 +243,52 @@ function exportData(format) {
     }
     window.open('/api/export/' + format + '?date=' + date, '_blank');
     showNotification('Downloading ' + format.toUpperCase() + '...');
+}
+
+async function loadHistory() {
+    try {
+        var r = await fetch('/api/history');
+        if (!r.ok) return;
+        var dates = await r.json();
+        var sel = document.getElementById('historySelect');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">-- History (' + dates.length + ' days) --</option>';
+        dates.forEach(function (d) {
+            var opt = document.createElement('option');
+            opt.value = d.date;
+            opt.textContent = d.date + ' (' + d.count + ' sold)';
+            sel.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('loadHistory error:', e);
+    }
+}
+
+function onHistorySelect() {
+    var sel = document.getElementById('historySelect');
+    if (sel && sel.value) {
+        setReportDate(sel.value);
+        loadDailyReport();
+    }
+}
+
+async function clearSoldData() {
+    var date = getReportDate();
+    if (!date) {
+        showNotification('No date selected', true);
+        return;
+    }
+    if (!confirm('Clear all sold data for ' + date + '?\nYou can re-scrape after clearing.')) return;
+    try {
+        var r = await fetch('/api/sold-log/clear?date=' + date, { method: 'DELETE' });
+        if (!r.ok) throw new Error('Failed to clear');
+        var d = await r.json();
+        showNotification(d.message);
+        loadDailyReport();
+        loadHistory();
+    } catch (e) {
+        showNotification('Error: ' + e.message, true);
+    }
 }
 
 function formatSoldDate(dateStr) {
@@ -284,6 +336,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var today = new Date().toISOString().slice(0, 10);
     setReportDate(today);
     loadDailyReport();
+    loadHistory();
     loadSoldLog();
 });
 

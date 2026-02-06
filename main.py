@@ -364,12 +364,38 @@ async def get_daily_report(
 
 @app.get("/api/history")
 async def get_history(db: Session = Depends(get_db)):
-    """Get list of available report dates"""
+    """Get list of dates that have sold data"""
     dates = db.query(
-        func.date(VehicleListing.scrape_date).label('report_date')
-    ).distinct().order_by(func.date(VehicleListing.scrape_date).desc()).all()
-    
-    return [{"date": str(date[0])} for date in dates]
+        func.date(SoldLog.sold_date).label('sold_date'),
+        func.count(SoldLog.id).label('count')
+    ).group_by(
+        func.date(SoldLog.sold_date)
+    ).order_by(func.date(SoldLog.sold_date).desc()).all()
+
+    return [{"date": str(d[0]), "count": d[1]} for d in dates]
+
+
+@app.delete("/api/sold-log/clear")
+async def clear_sold_log(
+    date: str,
+    db: Session = Depends(get_db)
+):
+    """Clear (delete) sold data for a specific date so it can be re-scraped."""
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    next_date = target_date + timedelta(days=1)
+    deleted = db.query(SoldLog).filter(
+        and_(
+            SoldLog.sold_date >= datetime.combine(target_date, datetime.min.time()),
+            SoldLog.sold_date < datetime.combine(next_date, datetime.min.time())
+        )
+    ).delete()
+    db.commit()
+
+    return {"message": f"Cleared {deleted} sold entries for {date}", "deleted": deleted}
 
 
 @app.get("/api/sold-log")

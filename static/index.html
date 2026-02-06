@@ -405,11 +405,18 @@
                     <button class="btn btn-outline-success btn-sm" onclick="loadDailyReport()">Load Report</button>
                 </div>
                 <div style="display: none;" id="dataTableWrapper">
-                    <div class="d-flex justify-content-between align-items-center px-3 py-2 bg-light border-bottom">
-                        <span>Report date: <strong id="reportDateLabel">—</strong></span>
-                        <div>
-                            <input type="date" id="reportDateTop">
-                            <button class="btn btn-sm btn-outline-primary ms-2" onclick="loadDailyReport()">Load</button>
+                    <div class="d-flex justify-content-between align-items-center px-3 py-2 bg-light border-bottom flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <span>Sold Report: <strong id="reportDateLabel">—</strong></span>
+                            <span class="badge bg-success" id="soldCountBadge" style="display:none;">0 sold</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <select class="form-select form-select-sm" id="historySelect" style="width:auto;" onchange="onHistorySelect()">
+                                <option value="">-- History --</option>
+                            </select>
+                            <input type="date" id="reportDateTop" style="width:auto;">
+                            <button class="btn btn-sm btn-outline-primary" onclick="loadDailyReport()"><i class="bi bi-search"></i> Load</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="clearSoldData()" id="btnClear"><i class="bi bi-trash"></i> Clear</button>
                         </div>
                     </div>
                     <table class="table data-table">
