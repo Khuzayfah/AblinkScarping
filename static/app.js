@@ -147,6 +147,25 @@ function setReportDate(val) {
     if (d2) d2.value = val;
 }
 
+function navDate(offset) {
+    var current = getReportDate();
+    if (!current) current = new Date().toISOString().slice(0, 10);
+    var d = new Date(current + 'T00:00:00');
+    d.setDate(d.getDate() + offset);
+    var today = new Date();
+    today.setHours(0,0,0,0);
+    if (d > today) return; // Don't go to future
+    var newDate = d.toISOString().slice(0, 10);
+    setReportDate(newDate);
+    loadDailyReport();
+}
+
+function navToday() {
+    var today = new Date().toISOString().slice(0, 10);
+    setReportDate(today);
+    loadDailyReport();
+}
+
 async function loadDailyReport() {
     var date = getReportDate();
     if (!date) {
@@ -159,7 +178,12 @@ async function loadDailyReport() {
         if (!r.ok) throw new Error('Failed to load report');
         var data = await r.json();
         setReportDate(data.date);
-        document.getElementById('reportDateLabel').textContent = data.date;
+        // Format date nicely: "Thu, 6 Feb 2026"
+        var dp = new Date(data.date + 'T00:00:00');
+        var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        var niceDate = days[dp.getDay()] + ', ' + dp.getDate() + ' ' + months[dp.getMonth()] + ' ' + dp.getFullYear();
+        document.getElementById('reportDateLabel').textContent = niceDate;
         // Check if there is any sold data in groups
         var hasSold = false;
         if (data.daily_table && data.daily_table.groups) {
@@ -169,16 +193,18 @@ async function loadDailyReport() {
                 });
             });
         }
+        // Always show table wrapper so calendar nav is visible
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('dataTableWrapper').style.display = 'block';
+        document.getElementById('exportBar').style.display = hasSold ? 'flex' : 'none';
         if (hasSold) {
-            document.getElementById('emptyState').style.display = 'none';
-            document.getElementById('dataTableWrapper').style.display = 'block';
-            document.getElementById('exportBar').style.display = 'flex';
             buildTable(data.daily_table);
         } else {
-            document.getElementById('emptyState').style.display = 'block';
-            document.getElementById('dataTableWrapper').style.display = 'none';
-            document.getElementById('exportBar').style.display = 'none';
-            document.getElementById('reportDate').value = date;
+            // Show empty message inside table
+            var tbody = document.getElementById('dataTableBody');
+            var thead = document.getElementById('tableHead');
+            thead.innerHTML = '';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:#9ca3af;"><i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>No sold data for this date.<br>Click REFRESH DATA to scrape, or navigate to another date.</td></tr>';
         }
         var totalSold = data.summary ? (data.summary.total_sold || 0) : 0;
         var badge = document.getElementById('soldCountBadge');

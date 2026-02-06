@@ -214,6 +214,60 @@
         .data-table .price-cell {
             white-space: nowrap;
         }
+        /* Calendar Navigation */
+        .calendar-nav {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+            border-bottom: 2px solid #1a5f2a;
+            flex-wrap: wrap;
+        }
+        .calendar-nav .btn-nav {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: white;
+            border: 2px solid #1a5f2a;
+            color: #1a5f2a;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            transition: all 0.2s;
+        }
+        .calendar-nav .btn-nav:hover {
+            background: #1a5f2a;
+            color: white;
+        }
+        .calendar-nav .date-display {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.05rem;
+        }
+        .calendar-nav .date-display i {
+            color: #1a5f2a;
+            font-size: 1.2rem;
+        }
+        .calendar-nav .date-display strong {
+            color: #1a5f2a;
+            font-size: 1.15rem;
+        }
+        .calendar-nav .date-display input[type="date"] {
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 0.9rem;
+        }
+        .calendar-nav .nav-actions {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -405,18 +459,22 @@
                     <button class="btn btn-outline-success btn-sm" onclick="loadDailyReport()">Load Report</button>
                 </div>
                 <div style="display: none;" id="dataTableWrapper">
-                    <div class="d-flex justify-content-between align-items-center px-3 py-2 bg-light border-bottom flex-wrap gap-2">
-                        <div class="d-flex align-items-center gap-2">
-                            <span>Sold Report: <strong id="reportDateLabel">—</strong></span>
+                    <!-- Calendar Navigation Bar -->
+                    <div class="calendar-nav">
+                        <button class="btn btn-sm btn-nav" onclick="navDate(-1)" title="Previous day"><i class="bi bi-chevron-left"></i></button>
+                        <div class="date-display">
+                            <i class="bi bi-calendar3"></i>
+                            <input type="date" id="reportDateTop" onchange="loadDailyReport()">
+                            <strong id="reportDateLabel">—</strong>
                             <span class="badge bg-success" id="soldCountBadge" style="display:none;">0 sold</span>
                         </div>
-                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <button class="btn btn-sm btn-nav" onclick="navDate(1)" title="Next day"><i class="bi bi-chevron-right"></i></button>
+                        <div class="nav-actions">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="navToday()" title="Go to today"><i class="bi bi-calendar-check"></i> Today</button>
                             <select class="form-select form-select-sm" id="historySelect" style="width:auto;" onchange="onHistorySelect()">
-                                <option value="">-- History --</option>
+                                <option value="">History</option>
                             </select>
-                            <input type="date" id="reportDateTop" style="width:auto;">
-                            <button class="btn btn-sm btn-outline-primary" onclick="loadDailyReport()"><i class="bi bi-search"></i> Load</button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="clearSoldData()" id="btnClear"><i class="bi bi-trash"></i> Clear</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="clearSoldData()" id="btnClear" title="Clear data for this date"><i class="bi bi-trash"></i> Clear</button>
                         </div>
                     </div>
                     <table class="table data-table">

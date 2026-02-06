@@ -537,12 +537,6 @@ class SGCarMartJSScraper:
 
         if scraped_data:
             self._save_to_db(scraped_data)
-            # Detect daily sold: compare previous day vs today
-            try:
-                from sold_log_service import detect_and_log_sold
-                detect_and_log_sold()
-            except Exception as e:
-                logger.error(f"Sold detection failed: {e}")
 
         return scraped_data
 

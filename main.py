@@ -110,9 +110,13 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
         try:
             logger.info("Background scrape task started")
             results = scraper.scrape_vehicle_listings()
-            logger.info(f"Scrape completed: {len(results) if results else 0} vehicles found")
-            # sold detection runs automatically inside scrape_vehicle_listings()
-            if not results:
+            logger.info(f"Active listings: {len(results) if results else 0} vehicles found")
+
+            logger.info("Starting SOLD listings scrape...")
+            sold_results = scraper.scrape_sold_listings()
+            logger.info(f"Sold listings: {len(sold_results) if sold_results else 0} vehicles found")
+
+            if not results and not sold_results:
                 logger.warning("Scrape returned 0 results - possible Cloudflare block or site structure change")
         except Exception as e:
             logger.error(f"Scrape failed with error: {e}")
