@@ -71,44 +71,65 @@ function formatPrice(val) {
     return '$' + Number(val).toLocaleString();
 }
 
-// Daily table columns: Date | Name & Model | Year registered | Depreciation | Dealer name
-var DAILY_COLUMNS = [
-    { key: 'date', label: 'Date' },
-    { key: 'name_model', label: 'Name & Model' },
-    { key: 'year_registered', label: 'Year registered' },
-    { key: 'depreciation', label: 'Depreciation' },
-    { key: 'dealer_name', label: 'Dealer name' }
-];
-
-function buildTable(dailyRows) {
+// Daily table: grouped by category with numbered sub-lists per model
+function buildTable(dailyData) {
+    var container = document.getElementById('dataTableBody');
     var thead = document.getElementById('tableHead');
-    var tbody = document.getElementById('dataTableBody');
+    container.innerHTML = '';
     thead.innerHTML = '';
-    tbody.innerHTML = '';
 
-    var tr = document.createElement('tr');
-    DAILY_COLUMNS.forEach(function (col) {
+    if (!dailyData || !dailyData.groups) return;
+
+    // Build header row
+    var headerTr = document.createElement('tr');
+    ['No', 'Name & Model', 'Year', 'Depreciation', 'Dealer'].forEach(function (label) {
         var th = document.createElement('th');
-        th.textContent = col.label;
-        if (col.key === 'name_model') th.className = 'vehicle-col';
-        tr.appendChild(th);
+        th.textContent = label;
+        if (label === 'Name & Model') th.className = 'vehicle-col';
+        if (label === 'No') th.style.width = '50px';
+        headerTr.appendChild(th);
     });
-    thead.appendChild(tr);
+    thead.appendChild(headerTr);
 
-    (dailyRows || []).forEach(function (row) {
-        var tr = document.createElement('tr');
-        DAILY_COLUMNS.forEach(function (col) {
-            var td = document.createElement('td');
-            var val = row[col.key];
-            if (col.key === 'name_model') {
-                td.className = 'vehicle-col';
-                td.textContent = val == null ? '–' : val;
+    var groups = dailyData.groups || [];
+    groups.forEach(function (group) {
+        // Category header row
+        var catTr = document.createElement('tr');
+        catTr.className = 'category-row';
+        var catTd = document.createElement('td');
+        catTd.colSpan = 5;
+        catTd.textContent = group.category;
+        catTr.appendChild(catTd);
+        container.appendChild(catTr);
+
+        var models = group.models || [];
+        models.forEach(function (modelData) {
+            var entries = modelData.entries || [];
+
+            if (entries.length === 0) {
+                // Model with no data
+                var emptyTr = document.createElement('tr');
+                emptyTr.className = 'model-empty-row';
+                emptyTr.innerHTML =
+                    '<td class="no-col">–</td>' +
+                    '<td class="vehicle-col">' + modelData.name_model + '</td>' +
+                    '<td>–</td><td>–</td><td>–</td>';
+                container.appendChild(emptyTr);
             } else {
-                td.textContent = val == null || val === '' ? '–' : val;
+                // Model header sub-row (first entry)
+                entries.forEach(function (entry, idx) {
+                    var tr = document.createElement('tr');
+                    if (idx === 0) tr.className = 'model-first-row';
+                    tr.innerHTML =
+                        '<td class="no-col">' + (idx + 1) + '</td>' +
+                        '<td class="vehicle-col">' + (idx === 0 ? modelData.name_model : '') + '</td>' +
+                        '<td>' + (entry.year_registered || '–') + '</td>' +
+                        '<td>' + (entry.depreciation || '–') + '</td>' +
+                        '<td>' + (entry.dealer_name || '–') + '</td>';
+                    container.appendChild(tr);
+                });
             }
-            tr.appendChild(td);
         });
-        tbody.appendChild(tr);
     });
 }
 
@@ -139,7 +160,7 @@ async function loadDailyReport() {
         var data = await r.json();
         setReportDate(data.date);
         document.getElementById('reportDateLabel').textContent = data.date;
-        if (data.daily_table && data.daily_table.length > 0) {
+        if (data.daily_table && data.daily_table.groups && data.daily_table.groups.length > 0) {
             document.getElementById('emptyState').style.display = 'none';
             document.getElementById('dataTableWrapper').style.display = 'block';
             document.getElementById('exportBar').style.display = 'flex';

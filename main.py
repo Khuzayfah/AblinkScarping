@@ -263,8 +263,8 @@ def _normalize_model(name: str) -> Optional[str]:
     return None
 
 
-def _build_daily_table(listings: List[VehicleListing], report_date: str) -> List[Dict[str, Any]]:
-    """Build daily table: one row per target vehicle model. Columns: Date, Name & Model, Year registered, Depreciation, Dealer name."""
+def _build_daily_table(listings: List[VehicleListing], report_date: str) -> Dict[str, Any]:
+    """Build daily table grouped by vehicle category with numbered sub-items per model."""
     # Aggregate by normalized model: store unique combinations of (dealer, year, depreciation)
     agg = defaultdict(lambda: {"items": set()})
     for L in listings:
@@ -272,51 +272,49 @@ def _build_daily_table(listings: List[VehicleListing], report_date: str) -> List
         if not model:
             continue
 
-        # Store unique combination as tuple
         dealer = (L.dealer_name or "–").strip()
         year = L.registered_year if L.registered_year else None
         dep = (L.depreciation or "–").strip()
-
-        # Use tuple for unique combinations
         agg[model]["items"].add((dealer, year, dep))
 
-    rows = []
-    for model in config.TARGET_VEHICLES:
-        d = agg.get(model, {"items": set()})
-        items = d["items"]
+    # Build grouped structure using VEHICLE_CATEGORIES from config
+    groups = []
+    for category, models in config.VEHICLE_CATEGORIES.items():
+        category_items = []
+        for model in models:
+            d = agg.get(model, {"items": set()})
+            items = d["items"]
 
-        if not items:
-            # No data for this model
-            rows.append({
-                "date": report_date,
+            if not items:
+                category_items.append({
+                    "name_model": model,
+                    "entries": []
+                })
+                continue
+
+            items_list = sorted(items, key=lambda x: (x[0], x[1] if x[1] else 0))
+            entries = []
+            for item in items_list:
+                entries.append({
+                    "year_registered": str(item[1]) if item[1] else "–",
+                    "depreciation": item[2],
+                    "dealer_name": item[0]
+                })
+
+            category_items.append({
                 "name_model": model,
-                "year_registered": "–",
-                "depreciation": "–",
-                "dealer_name": "–"
+                "entries": entries
             })
-            continue
 
-        # Convert set to list and sort by dealer name, then year
-        items_list = sorted(items, key=lambda x: (x[0], x[1] if x[1] else 0))
-
-        # Extract aligned lists (dealer, year, depreciation are in same order)
-        dealers = [item[0] for item in items_list]
-        years = [str(item[1]) if item[1] else "–" for item in items_list]
-        depreciations = [item[2] for item in items_list]
-
-        # Join with comma separator (all lists have same length, so they're aligned)
-        dealer_str = ", ".join(dealers)
-        year_str = ", ".join(years)
-        dep_str = ", ".join(depreciations)
-
-        rows.append({
-            "date": report_date,
-            "name_model": model,
-            "year_registered": year_str,
-            "depreciation": dep_str,
-            "dealer_name": dealer_str
+        groups.append({
+            "category": category,
+            "models": category_items
         })
-    return rows
+
+    return {
+        "date": report_date,
+        "groups": groups
+    }
 
 
 @app.get("/api/daily-report")
@@ -387,7 +385,7 @@ async def get_sold_log(
     return [r.to_dict() for r in rows]
 
 
-def _get_daily_table_for_date(target_date, db: Session) -> List[Dict[str, Any]]:
+def _get_daily_table_for_date(target_date, db: Session) -> Dict[str, Any]:
     """Get daily table rows for a given date."""
     next_date = target_date + timedelta(days=1)
     listings = db.query(VehicleListing).filter(

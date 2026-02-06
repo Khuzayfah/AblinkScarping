@@ -29,26 +29,61 @@ class ExportService:
         return df[existing_columns]
     
     @staticmethod
-    def to_daily_dataframe(daily_rows):
-        """Convert daily table rows to DataFrame (Date, Name & Model, Year registered, etc.)"""
-        if not daily_rows:
-            return pd.DataFrame(columns=DAILY_TABLE_COLUMNS)
-        df = pd.DataFrame(daily_rows)
-        return df[[c for c in DAILY_TABLE_COLUMNS if c in df.columns]]
-    
+    def _flatten_grouped_data(daily_data):
+        """Flatten grouped daily data into flat rows for CSV/Excel/PDF export."""
+        if not daily_data or 'groups' not in daily_data:
+            return []
+        rows = []
+        report_date = daily_data.get('date', '')
+        for group in daily_data['groups']:
+            category = group['category']
+            for model_data in group['models']:
+                model = model_data['name_model']
+                entries = model_data.get('entries', [])
+                if not entries:
+                    rows.append({
+                        'date': report_date,
+                        'category': category,
+                        'name_model': model,
+                        'no': '',
+                        'year_registered': '–',
+                        'depreciation': '–',
+                        'dealer_name': '–'
+                    })
+                else:
+                    for i, entry in enumerate(entries, 1):
+                        rows.append({
+                            'date': report_date,
+                            'category': category,
+                            'name_model': model,
+                            'no': i,
+                            'year_registered': entry['year_registered'],
+                            'depreciation': entry['depreciation'],
+                            'dealer_name': entry['dealer_name']
+                        })
+        return rows
+
     @staticmethod
-    def export_daily_table_csv(daily_rows):
+    def to_daily_dataframe(daily_data):
+        """Convert grouped daily data to DataFrame for export."""
+        rows = ExportService._flatten_grouped_data(daily_data)
+        if not rows:
+            return pd.DataFrame(columns=['date', 'category', 'name_model', 'no', 'year_registered', 'depreciation', 'dealer_name'])
+        return pd.DataFrame(rows)
+
+    @staticmethod
+    def export_daily_table_csv(daily_data):
         """Export daily table to CSV"""
-        df = ExportService.to_daily_dataframe(daily_rows)
+        df = ExportService.to_daily_dataframe(daily_data)
         output = BytesIO()
         df.to_csv(output, index=False, encoding='utf-8')
         output.seek(0)
         return output
-    
+
     @staticmethod
-    def export_daily_table_excel(daily_rows):
+    def export_daily_table_excel(daily_data):
         """Export daily table to Excel"""
-        df = ExportService.to_daily_dataframe(daily_rows)
+        df = ExportService.to_daily_dataframe(daily_data)
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Daily Report', index=False)
@@ -60,9 +95,9 @@ class ExportService:
                 worksheet.column_dimensions[chr(65 + idx)].width = min(max_len + 2, 50)
         output.seek(0)
         return output
-    
+
     @staticmethod
-    def export_daily_table_pdf(daily_rows, title="SGCarMart Daily Report"):
+    def export_daily_table_pdf(daily_data, title="SGCarMart Daily Report"):
         """Export daily table to PDF"""
         output = BytesIO()
         doc = SimpleDocTemplate(output, pagesize=A4)
@@ -72,8 +107,8 @@ class ExportService:
         elements.append(Spacer(1, 12))
         elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
         elements.append(Spacer(1, 12))
-        if daily_rows:
-            df = ExportService.to_daily_dataframe(daily_rows)
+        df = ExportService.to_daily_dataframe(daily_data)
+        if len(df) > 0:
             table_data = [df.columns.tolist()] + df.values.tolist()
             table = Table(table_data)
             table.setStyle(TableStyle([
