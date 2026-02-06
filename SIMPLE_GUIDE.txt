@@ -1,0 +1,127 @@
+╔═══════════════════════════════════════════════════════════╗
+║                                                           ║
+║          SGCarMart Scraper - SIMPLE GUIDE                ║
+║                                                           ║
+╚═══════════════════════════════════════════════════════════╝
+
+
+📋 CARA PAKAI (3 LANGKAH):
+
+┌───────────────────────────────────────────────────────────┐
+│ 1. INSTALL (Sekali saja)                                 │
+└───────────────────────────────────────────────────────────┘
+
+   Double-click: install.bat
+   Tunggu sampai selesai
+
+
+┌───────────────────────────────────────────────────────────┐
+│ 2. JALANKAN                                               │
+└───────────────────────────────────────────────────────────┘
+
+   Double-click: go.bat
+   Browser akan otomatis buka
+
+
+┌───────────────────────────────────────────────────────────┐
+│ 3. AMBIL DATA                                             │
+└───────────────────────────────────────────────────────────┘
+
+   Di browser:
+   - Klik "Run Scrape Now"
+   - Tunggu 3-5 menit
+   - Refresh (F5)
+   - Klik "Load Report"
+
+
+═══════════════════════════════════════════════════════════
+
+
+📊 FORMAT TABEL (5 KOLOM SAJA):
+
+   1. Date              → Tanggal scraping
+   2. Name & MODEL      → Jenis kendaraan
+   3. Year registered   → Tahun registrasi
+   4. Depreciation      → Depresiasi
+   5. Dealer name       → Nama dealer
+
+   Note: Setiap MODEL ditampilkan 1 BARIS (aggregate)
+         Jika tidak ada data, kolom akan kosong (–)
+
+
+═══════════════════════════════════════════════════════════
+
+
+⏰ JADWAL OTOMATIS:
+
+   Klik ⚙️ (Settings) di web interface
+
+   Pilihan:
+   • Jam dan Menit     (contoh: 06:00)
+   • Interval Hari:
+     - 1 hari  → Scraping setiap hari
+     - 2 hari  → Scraping setiap 2 hari
+
+
+═══════════════════════════════════════════════════════════
+
+
+📥 EXPORT DATA:
+
+   Klik tombol:
+   • CSV   → untuk Excel
+   • Excel → file .xlsx
+   • PDF   → untuk print
+
+
+═══════════════════════════════════════════════════════════
+
+
+🚙 25 JENIS KENDARAAN:
+
+   ✓ 10FT DIESEL
+   ✓ 14FT DIESEL
+   ✓ HINO DUTRO 2.8
+   ✓ HINO XZU710
+   ✓ TOYOTA DYNA 2.8
+   ✓ TOYOTA DYNA 3.0
+   ✓ TOYOTA HIACE (3.0M, 3.0A, 2.8A, 2.0)
+   ✓ NISSAN CABSTAR
+   ✓ NISSAN NV350 (2.5M, 2.0)
+   ✓ NISSAN NV200 (1.5M, 1.6A)
+   ✓ ISUZU (NHR/NJR, NPR85, NMR85, NNR85)
+   ✓ MITSUBISHI (FEA01, FEA21)
+   ✓ KIA 2500
+   ✓ HONDA N-VAN
+   ✓ VAN DIESEL
+   ✓ VAN PETROL
+
+
+═══════════════════════════════════════════════════════════
+
+
+❓ MASALAH?
+
+   ┌─────────────────────────────────────────────────────┐
+   │ Tidak ada data                                      │
+   └─────────────────────────────────────────────────────┘
+
+   • Double-click: test.bat (lihat browser)
+   • Pakai VPN Singapore
+   • Coba lagi nanti
+
+
+   ┌─────────────────────────────────────────────────────┐
+   │ Port sudah dipakai                                  │
+   └─────────────────────────────────────────────────────┘
+
+   • Restart komputer
+   • Atau matikan aplikasi yang pakai port 8000
+
+
+═══════════════════════════════════════════════════════════
+
+
+                    🎉 SELAMAT MENCOBA! 🎉
+
+═══════════════════════════════════════════════════════════

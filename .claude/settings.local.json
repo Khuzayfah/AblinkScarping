@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(dir:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(more:*)",
+      "Bash(pip install:*)",
+      "Bash(tee:*)",
+      "WebFetch(domain:www.sgcarmart.com)",
+      "Bash(sqlite3:*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(git config:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)",
+      "Bash(git fetch:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}

@@ -1,0 +1,80 @@
+
+================================================================================
+Loading: https://www.sgcarmart.com/used_cars/listing.php?veh=1
+================================================================================
+
+Scrolling to load all listings...
+
+================================================================================
+PAGE ANALYSIS RESULTS
+================================================================================
+Total listings found: 218
+Total dealer links (DL=): 1
+
+================================================================================
+SAMPLE LISTINGS (First 3):
+================================================================================
+
+
+--- LISTING 1 ---
+Car: Porsche Cayenne 3.0A Tip
+Car Link: https://www.sgcarmart.com/used-cars/info/porsche-cayenne-30a-tip-1473183/?dl=3164
+
+Dealer Info Found (0 methods):
+  [!] NO DEALER INFO FOUND!
+
+All Links in Listing (1 total, showing first 5):
+  • Text: Porsche Cayenne 3.0A Tip
+    Href: https://www.sgcarmart.com/used-cars/info/porsche-cayenne-30a-tip-1473183/?dl=3164
+
+Full Text Preview:
+  Porsche Cayenne 3.0A Tip$298,800Instl. $3,354 /mth$44,460 /yr28-Apr-2021(5y 2m COE left)N.A2,995 cc2 Owners
+
+HTML Preview:
+  <div class="listing_desktop_detail_container__q9Rww"><div class="styles_model_name__ZaHTI listing_make_model_box__TTuc9"><a class="styles_text_link__wBaHL" href="https://www.sgcarmart.com/used-cars/info/porsche-cayenne-30a-tip-1473183/?dl=3164">Porsche Cayenne 3.0A Tip</a></div><div class="styles_price_container__rI4oV listing_price_box__AykqY"><div class="styles_price__PoUIK null">$298,800</div><...
+
+================================================================================
+
+--- LISTING 2 ---
+Car: Porsche Cayenne 3.0A Tip
+Car Link: https://www.sgcarmart.com/used-cars/info/porsche-cayenne-30a-tip-1473183/?dl=3164
+
+Dealer Info Found (0 methods):
+  [!] NO DEALER INFO FOUND!
+
+All Links in Listing (1 total, showing first 5):
+  • Text: Porsche Cayenne 3.0A Tip
+    Href: https://www.sgcarmart.com/used-cars/info/porsche-cayenne-30a-tip-1473183/?dl=3164
+
+Full Text Preview:
+  Porsche Cayenne 3.0A Tip
+
+HTML Preview:
+  <div class="styles_model_name__ZaHTI listing_make_model_box__TTuc9"><a class="styles_text_link__wBaHL" href="https://www.sgcarmart.com/used-cars/info/porsche-cayenne-30a-tip-1473183/?dl=3164">Porsche Cayenne 3.0A Tip</a></div>...
+
+================================================================================
+
+--- LISTING 3 ---
+Car: BMW 5 Series 530i M-Sport
+Car Link: https://www.sgcarmart.com/used-cars/info/bmw-5-series-530i-1473182/?dl=4954
+
+Dealer Info Found (0 methods):
+  [!] NO DEALER INFO FOUND!
+
+All Links in Listing (1 total, showing first 5):
+  • Text: BMW 5 Series 530i M-Sport
+    Href: https://www.sgcarmart.com/used-cars/info/bmw-5-series-530i-1473182/?dl=4954
+
+Full Text Preview:
+  BMW 5 Series 530i M-Sport$105,800Instl. $2,486 /mth$23,420 /yr28-Nov-2018(2y 9m COE left)130,000 km1,998 cc2 Owners
+
+HTML Preview:
+  <div class="listing_desktop_detail_container__q9Rww"><div class="styles_model_name__ZaHTI listing_make_model_box__TTuc9"><a class="styles_text_link__wBaHL" href="https://www.sgcarmart.com/used-cars/info/bmw-5-series-530i-1473182/?dl=4954">BMW 5 Series 530i M-Sport</a></div><div class="styles_price_container__rI4oV listing_price_box__AykqY"><div class="styles_price__PoUIK null">$105,800</div><div c...
+
+================================================================================
+
+
+Browser will stay open for 30 seconds for manual inspection...
+Check the page structure and look for dealer information manually.
+
+Debug complete!
