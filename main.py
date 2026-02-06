@@ -1,4 +1,5 @@
 """Main FastAPI application - Ablink SGCarmart Scraper"""
+import logging
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Body
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +16,9 @@ from js_scraper import SGCarMartJSScraper
 from export_service import ExportService
 from scheduler import ScraperScheduler
 import config
+
+logger = logging.getLogger("main")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Initialize database
 init_db()
@@ -104,7 +108,15 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
         from database import SessionLocal
         scraper = SGCarMartJSScraper(headless=True)
         try:
-            scraper.scrape_vehicle_listings()
+            logger.info("Background scrape task started")
+            results = scraper.scrape_vehicle_listings()
+            logger.info(f"Scrape completed: {len(results) if results else 0} vehicles found")
+            if not results:
+                logger.warning("Scrape returned 0 results - possible Cloudflare block or site structure change")
+        except Exception as e:
+            logger.error(f"Scrape failed with error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             d = SessionLocal()
             try:
@@ -113,6 +125,7 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
                     lg.status = "Ready"
                     lg.last_scrape_at = datetime.now()
                     d.commit()
+                    logger.info("Scrape status set to Ready")
             finally:
                 d.close()
 
@@ -198,12 +211,54 @@ async def get_listings(
     return [listing.to_dict() for listing in listings]
 
 def _normalize_model(name: str) -> Optional[str]:
-    """Match listing make_model to TARGET_VEHICLES (case-insensitive)."""
+    """Match listing make_model to TARGET_VEHICLES (case-insensitive).
+    Handles names like 'Toyota Dyna 150 3.0M (COE till 01/2031)' -> 'TOYOTA DYNA 3.0'
+    Also handles dirty names like 'Used Toyota Dyna 150 3.0MReg Date: ...$99,988'
+    """
     if not name:
         return None
+    # Clean the name
     n = name.upper().strip()
+    # Remove "Used " prefix
+    if n.startswith("USED "):
+        n = n[5:]
+    # Remove everything after "REG DATE" or "$" (price)
+    for cutoff in ["REG DATE", "REG.DATE", "REGDATE", "$"]:
+        idx = n.find(cutoff)
+        if idx > 0:
+            n = n[:idx]
+    # Remove COE suffix
+    import re
+    n = re.sub(r'\s*\((?:COE|NEW|5-YR).*\)', '', n, flags=re.IGNORECASE).strip()
+    # Remove intermediate model numbers like "150" in "DYNA 150 3.0M"
+    n = re.sub(r'(\bDYNA)\s+\d+\s+', r'\1 ', n)
+    # "COMMUTER" suffix removal for Hiace matching
+    n_no_commuter = re.sub(r'\bCOMMUTER\b', '', n).strip()
+    n_no_commuter = re.sub(r'\s+', ' ', n_no_commuter)
+    # "DX" / "GL" / "HIGH ROOF" suffix removal for matching
+    n_clean = re.sub(r'\s+(DX|GL|HIGH ROOF).*$', '', n_no_commuter).strip()
+
+    # Also create version without transmission suffix (A/M) for flexible matching
+    # e.g., "NISSAN NV350 2.5A" should match "NISSAN NV350 2.5M"
+    n_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', n_clean)
+
     for v in config.TARGET_VEHICLES:
-        if v.upper() in n or n in v.upper():
+        vu = v.upper()
+        vu_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', vu)
+        # Check various cleaned versions
+        if vu in n or n in vu:
+            return v
+        if vu in n_no_commuter or n_no_commuter in vu:
+            return v
+        if vu in n_clean or n_clean in vu:
+            return v
+        # Match ignoring A/M transmission difference
+        if vu_no_trans and (vu_no_trans in n_no_trans or n_no_trans in vu_no_trans):
+            return v
+        # Special: match "ISUZU NHR87A" to "ISUZU NHR / NJR"
+        if "ISUZU" in n and ("NHR" in vu and "NHR" in n):
+            return v
+        if "ISUZU" in n and ("NJR" in vu and "NJR" in n):
             return v
     return None
 
