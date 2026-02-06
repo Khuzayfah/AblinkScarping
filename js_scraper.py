@@ -629,6 +629,9 @@ class SGCarMartJSScraper:
             logger.info(f"[3/3] Processing {len(sold_data)} sold target vehicles...")
 
             processed = []
+            detail_fetch_count = 0
+            MAX_DETAIL_FETCHES = 30  # Limit detail page fetches to avoid 429
+
             for item in sold_data:
                 name = item.get('car_model', '')
                 link = item.get('link', '')
@@ -637,24 +640,28 @@ class SGCarMartJSScraper:
                 depreciation = item.get('depreciation')
                 reg_date = item.get('registration_date', '')
 
+                # SGCarMart returns depreciation=0 for sold items - treat as empty
                 dep_str = ''
-                if depreciation is not None:
+                if depreciation is not None and depreciation > 0:
                     dep_str = f"${depreciation:,}/yr"
 
                 if not dealer_name and dealer_code:
                     dealer_name = global_dealer_map.get(dealer_code, '')
 
-                # Fetch detail page for missing dealer/depreciation
-                if (not dealer_name or not dep_str) and link:
-                    time.sleep(1)
+                # Fetch detail page only for missing dealer (not for depreciation - sold items don't have it)
+                if not dealer_name and link and detail_fetch_count < MAX_DETAIL_FETCHES:
+                    time.sleep(1.5)
                     detail_dealer, detail_dep = self._fetch_detail_page_dealer(session, link, global_dealer_map)
-                    if detail_dealer and not dealer_name:
+                    detail_fetch_count += 1
+                    if detail_dealer:
                         dealer_name = detail_dealer
                     if detail_dep and not dep_str:
                         dep_str = detail_dep
 
                 if not dealer_name:
                     dealer_name = '–'
+                if not dep_str:
+                    dep_str = '–'
 
                 processed.append({
                     'make_model': name,
