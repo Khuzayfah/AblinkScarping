@@ -368,93 +368,156 @@
         }
         .sold-log-empty { color: #9ca3af; font-style: italic; padding: 12px 0; }
 
-        /* Debug Console Panel */
-        .debug-console {
-            border-top: 3px solid #ef4444;
-            background: #1f2937;
-            color: #f3f4f6;
-            padding: 20px 32px;
+        /* How It Works Guide */
+        .guide-section {
+            border-top: 1px solid #e5e7eb;
+            background: #f8fafc;
+            padding: 0;
         }
-        .debug-console h3 {
-            color: #ef4444;
-            font-size: 1rem;
+        .guide-header {
+            padding: 20px 32px;
+            background: linear-gradient(135deg, #1e3a5f, #1a5f2a);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+        }
+        .guide-header:hover {
+            background: linear-gradient(135deg, #162d4a, #145221);
+        }
+        .guide-header h3 {
+            margin: 0;
+            font-size: 1.05rem;
             font-weight: 700;
-            margin-bottom: 12px;
             display: flex;
             align-items: center;
             gap: 8px;
         }
-        .debug-controls {
+        .guide-body {
+            padding: 28px 32px;
+        }
+        .guide-body h4 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #1a5f2a;
+            margin: 20px 0 10px 0;
+        }
+        .guide-body h4:first-child {
+            margin-top: 0;
+        }
+        .guide-body p, .guide-body li {
+            font-size: 0.88rem;
+            color: #374151;
+            line-height: 1.7;
+        }
+        .guide-body ul {
+            padding-left: 20px;
+        }
+        .guide-body li {
+            margin-bottom: 6px;
+        }
+        .guide-flow {
             display: flex;
-            gap: 8px;
-            margin-bottom: 12px;
+            align-items: stretch;
+            gap: 0;
+            margin: 16px 0;
             flex-wrap: wrap;
         }
-        .debug-controls button {
-            padding: 6px 16px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            border: none;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .debug-controls .btn-test {
-            background: #10b981;
-            color: white;
-        }
-        .debug-controls .btn-test:hover {
-            background: #059669;
-        }
-        .debug-controls .btn-clear {
-            background: #6b7280;
-            color: white;
-        }
-        .debug-controls .btn-clear:hover {
-            background: #4b5563;
-        }
-        .debug-controls .btn-copy {
-            background: #3b82f6;
-            color: white;
-        }
-        .debug-controls .btn-copy:hover {
-            background: #2563eb;
-        }
-        .debug-output {
-            background: #111827;
-            border: 1px solid #374151;
-            border-radius: 8px;
+        .guide-flow-step {
+            flex: 1;
+            min-width: 180px;
             padding: 16px;
-            font-family: 'Courier New', monospace;
+            text-align: center;
+            border-radius: 10px;
+            position: relative;
+        }
+        .guide-flow-step.step-scrape {
+            background: #eff6ff;
+            border: 2px solid #3b82f6;
+        }
+        .guide-flow-step.step-compare {
+            background: #fef3c7;
+            border: 2px solid #f59e0b;
+        }
+        .guide-flow-step.step-sold {
+            background: #dcfce7;
+            border: 2px solid #22c55e;
+        }
+        .guide-flow-step i.step-icon {
+            font-size: 1.8rem;
+            display: block;
+            margin-bottom: 8px;
+        }
+        .guide-flow-step .step-title {
+            font-weight: 700;
             font-size: 0.85rem;
-            max-height: 400px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            line-height: 1.5;
+            margin-bottom: 4px;
         }
-        .debug-output:empty:before {
-            content: 'No logs yet. Click "Run Quick Test" to start diagnostics...';
+        .guide-flow-step .step-desc {
+            font-size: 0.78rem;
             color: #6b7280;
-            font-style: italic;
         }
-        .debug-log-success {
-            color: #10b981;
+        .guide-flow-arrow {
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            font-size: 1.5rem;
+            color: #9ca3af;
         }
-        .debug-log-error {
-            color: #ef4444;
-            font-weight: 600;
+        .guide-note {
+            background: #fefce8;
+            border-left: 4px solid #eab308;
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+            margin-top: 16px;
+            font-size: 0.85rem;
+            color: #854d0e;
         }
-        .debug-log-warning {
-            color: #f59e0b;
+        .guide-note i { margin-right: 6px; }
+
+        /* Data Log Sections (Active + Sold raw logs) */
+        .data-log-section {
+            border-top: 1px solid #e5e7eb;
         }
-        .debug-log-info {
-            color: #60a5fa;
+        .data-log-header {
+            padding: 14px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
         }
-        .debug-log-timestamp {
-            color: #6b7280;
-            font-size: 0.8rem;
+        .data-log-header:hover {
+            filter: brightness(0.95);
         }
+        .data-log-header h4 {
+            margin: 0;
+            font-size: 0.95rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .data-log-header .badge {
+            font-size: 0.72rem;
+        }
+        .data-log-body {
+            padding: 16px 32px 24px 32px;
+            overflow-x: auto;
+        }
+        .data-log-header.log-active {
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+            border-bottom: 1px solid #bfdbfe;
+        }
+        .data-log-header.log-active h4 { color: #1e40af; }
+        .data-log-header.log-sold {
+            background: linear-gradient(135deg, #fef2f2, #fee2e2);
+            border-bottom: 1px solid #fecaca;
+        }
+        .data-log-header.log-sold h4 { color: #991b1b; }
 
         @media (max-width: 768px) {
             .header { flex-direction: column; text-align: center; }
@@ -531,54 +594,127 @@
                 </div>
             </div>
 
-            <div class="sold-log-section">
-                <div class="sold-log-header" onclick="toggleSoldLog()" style="cursor:pointer;">
-                    <h3 style="margin:0;display:flex;align-items:center;gap:8px;">
-                        <i class="bi bi-chevron-down" id="soldLogToggleIcon"></i>
-                        DAILY SOLD LOG
-                        <span class="badge bg-info" id="soldLogCountBadge" style="display:none;font-size:0.75rem;">0 entries</span>
-                    </h3>
-                    <small class="text-muted">Click to expand / collapse</small>
-                </div>
-                <div id="soldLogContent" style="display:none;">
-                    <div class="d-flex align-items-center gap-2 mb-2 mt-2">
-                        <label class="mb-0 small fw-bold">Filter by date:</label>
-                        <input type="date" id="soldLogDate">
-                        <button class="btn btn-sm btn-outline-secondary" onclick="loadSoldLog()">Load</button>
-                    </div>
-                    <div id="soldLogContainer" style="overflow-x:auto;">
-                        <div class="sold-log-empty">Loading...</div>
-                    </div>
-                </div>
-            </div>
-
             <div class="export-bar" id="exportBar" style="display: none;">
                 <button class="btn btn-outline-success btn-sm" onclick="exportData('csv')"><i class="bi bi-file-earmark-spreadsheet"></i> CSV</button>
                 <button class="btn btn-outline-success btn-sm" onclick="exportData('excel')"><i class="bi bi-file-earmark-excel"></i> Excel</button>
                 <button class="btn btn-outline-danger btn-sm" onclick="exportData('pdf')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
             </div>
 
-            <!-- Debug Console Panel -->
-            <div class="debug-console">
-                <h3><i class="bi bi-bug-fill"></i> DEBUG CONSOLE - Diagnostic Tools</h3>
-                <div class="debug-controls">
-                    <button class="btn-test" onclick="runQuickTest()">
-                        <i class="bi bi-play-circle"></i> Run Quick Test
-                    </button>
-                    <button class="btn-test" onclick="testNetwork()">
-                        <i class="bi bi-wifi"></i> Test Network
-                    </button>
-                    <button class="btn-test" onclick="testBrowser()">
-                        <i class="bi bi-browser-chrome"></i> Test Browser
-                    </button>
-                    <button class="btn-copy" onclick="copyDebugLogs()">
-                        <i class="bi bi-clipboard"></i> Copy Logs
-                    </button>
-                    <button class="btn-clear" onclick="clearDebugLogs()">
-                        <i class="bi bi-trash"></i> Clear
-                    </button>
+            <!-- Data Logs: Active Listings + Sold Log (collapsed by default) -->
+            <div class="data-log-section">
+                <div class="data-log-header log-active" onclick="toggleActiveLog()">
+                    <h4>
+                        <i class="bi bi-chevron-right" id="activeLogIcon"></i>
+                        <i class="bi bi-database"></i> Active Listings Data
+                        <span class="badge bg-primary" id="activeLogBadge">0</span>
+                    </h4>
+                    <small class="text-muted">Click to expand</small>
                 </div>
-                <div class="debug-output" id="debugOutput"></div>
+                <div id="activeLogBody" class="data-log-body" style="display:none;">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <label class="mb-0 small fw-bold">Date:</label>
+                        <input type="date" id="activeLogDate">
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadActiveLog()">Load</button>
+                        <span class="small text-muted ms-2" id="activeLogInfo"></span>
+                    </div>
+                    <div id="activeLogContainer" style="overflow-x:auto;">
+                        <div class="sold-log-empty">Select a date and click Load.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="data-log-section">
+                <div class="data-log-header log-sold" onclick="toggleSoldLog()">
+                    <h4>
+                        <i class="bi bi-chevron-right" id="soldLogToggleIcon"></i>
+                        <i class="bi bi-cart-x"></i> Daily Sold Log
+                        <span class="badge bg-danger" id="soldLogCountBadge" style="display:none;">0 entries</span>
+                    </h4>
+                    <small class="text-muted">Click to expand</small>
+                </div>
+                <div id="soldLogContent" style="display:none;">
+                    <div class="data-log-body">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <label class="mb-0 small fw-bold">Date:</label>
+                            <input type="date" id="soldLogDate">
+                            <button class="btn btn-sm btn-outline-danger" onclick="loadSoldLog()">Load</button>
+                        </div>
+                        <div id="soldLogContainer" style="overflow-x:auto;">
+                            <div class="sold-log-empty">Select a date and click Load.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- How It Works Guide -->
+            <div class="guide-section">
+                <div class="guide-header" onclick="toggleGuide()">
+                    <h3>
+                        <i class="bi bi-chevron-right" id="guideToggleIcon"></i>
+                        <i class="bi bi-info-circle"></i> HOW THIS APPLICATION WORKS
+                    </h3>
+                    <small style="opacity:0.8;">Click to expand</small>
+                </div>
+                <div id="guideBody" class="guide-body" style="display:none;">
+
+                    <h4><i class="bi bi-diagram-3"></i> System Flow</h4>
+                    <div class="guide-flow">
+                        <div class="guide-flow-step step-scrape">
+                            <i class="step-icon bi bi-cloud-download text-primary"></i>
+                            <div class="step-title">1. SCRAPE</div>
+                            <div class="step-desc">Fetch all active commercial vehicle listings from SGCarMart.com<br>(~900+ vehicles daily)</div>
+                        </div>
+                        <div class="guide-flow-arrow"><i class="bi bi-arrow-right"></i></div>
+                        <div class="guide-flow-step step-compare">
+                            <i class="step-icon bi bi-arrow-left-right text-warning"></i>
+                            <div class="step-title">2. COMPARE</div>
+                            <div class="step-desc">Compare today's listings with yesterday's.<br>Any listing that <b>disappeared</b> = vehicle was sold.</div>
+                        </div>
+                        <div class="guide-flow-arrow"><i class="bi bi-arrow-right"></i></div>
+                        <div class="guide-flow-step step-sold">
+                            <i class="step-icon bi bi-check-circle text-success"></i>
+                            <div class="step-title">3. SOLD LOG</div>
+                            <div class="step-desc">Sold vehicles are logged with full details:<br>Model, Year, Depreciation, Dealer, Price</div>
+                        </div>
+                    </div>
+
+                    <h4><i class="bi bi-question-circle"></i> Why This Method?</h4>
+                    <p>
+                        SGCarMart does <b>not</b> provide a direct "sold today" feed. The only way to detect daily sales
+                        is by comparing active listings between consecutive days. If a vehicle listing URL was present
+                        yesterday but is gone today, it means the vehicle has been <b>sold or removed</b>.
+                    </p>
+                    <p>
+                        This comparison method also gives us <b>complete data</b> for each sold vehicle &mdash; because the
+                        depreciation, dealer name, and price were already captured when the vehicle was still an active listing.
+                    </p>
+
+                    <h4><i class="bi bi-book"></i> How to Use</h4>
+                    <ul>
+                        <li><b>REFRESH DATA</b> &mdash; Click this button to scrape all current listings from SGCarMart. This takes about 3&ndash;5 minutes. After scraping, the system automatically compares with the previous day's data to detect sold vehicles.</li>
+                        <li><b>Daily Report (main table)</b> &mdash; Shows vehicles sold on the selected date, grouped by category (Van Diesel, Van Petrol, 10FT Diesel, 14FT Diesel). Use the calendar arrows or date picker to navigate.</li>
+                        <li><b>History dropdown</b> &mdash; Jump to any date that has sold data. The number in parentheses shows how many vehicles were sold on that day.</li>
+                        <li><b>Export (CSV / Excel / PDF)</b> &mdash; Download the daily sold report in your preferred format.</li>
+                        <li><b>Active Listings Data</b> &mdash; Expand this section to see the raw active listing data that was scraped for any date.</li>
+                        <li><b>Daily Sold Log</b> &mdash; Expand this section to see the raw sold log entries with all fields.</li>
+                        <li><b>Auto Schedule</b> &mdash; Set a time for automatic daily scraping (e.g., 06:00 AM). The server will scrape and detect sold vehicles automatically every day.</li>
+                        <li><b>Clear button</b> &mdash; Deletes sold data for a specific date. Use this if the data looks incorrect, then re-scrape.</li>
+                    </ul>
+
+                    <h4><i class="bi bi-exclamation-triangle"></i> Important Notes</h4>
+                    <ul>
+                        <li>You need <b>at least 2 consecutive days</b> of scrape data before sold detection works. The first scrape only saves active listings &mdash; there is nothing to compare yet.</li>
+                        <li>Both days' scrapes must <b>complete successfully</b>. If one day fails (e.g., Cloudflare blocks), sold detection is skipped for that day.</li>
+                        <li>The server must <b>stay running</b> for the auto-schedule to work. If the server restarts, the scheduler resumes from saved settings.</li>
+                        <li>Each sold entry shows the data <b>from the last time it was seen as active</b>, so depreciation and price are always accurate.</li>
+                    </ul>
+
+                    <div class="guide-note">
+                        <i class="bi bi-lightbulb"></i>
+                        <b>Tip:</b> For best results, run the scraper at the same time every day (e.g., 6:00 AM via auto-schedule).
+                        This ensures consistent daily comparison and accurate sold detection.
+                    </div>
+                </div>
             </div>
         </div>
     </div>

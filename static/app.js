@@ -368,7 +368,68 @@ function toggleSoldLog() {
     var icon = document.getElementById('soldLogToggleIcon');
     var isHidden = content.style.display === 'none';
     content.style.display = isHidden ? 'block' : 'none';
-    icon.className = isHidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+    icon.className = isHidden ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
+}
+
+function toggleActiveLog() {
+    var body = document.getElementById('activeLogBody');
+    var icon = document.getElementById('activeLogIcon');
+    var isHidden = body.style.display === 'none';
+    body.style.display = isHidden ? 'block' : 'none';
+    icon.className = isHidden ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
+}
+
+function toggleGuide() {
+    var body = document.getElementById('guideBody');
+    var icon = document.getElementById('guideToggleIcon');
+    var isHidden = body.style.display === 'none';
+    body.style.display = isHidden ? 'block' : 'none';
+    icon.className = isHidden ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
+}
+
+async function loadActiveLog() {
+    var dateInput = document.getElementById('activeLogDate');
+    var date = dateInput && dateInput.value ? dateInput.value : '';
+    if (!date) {
+        showNotification('Please select a date', true);
+        return;
+    }
+    var container = document.getElementById('activeLogContainer');
+    var info = document.getElementById('activeLogInfo');
+    container.innerHTML = '<div class="sold-log-empty">Loading...</div>';
+    try {
+        var r = await fetch('/api/listings?date=' + date + '&limit=500');
+        if (!r.ok) throw new Error('Failed');
+        var list = await r.json();
+        if (info) info.textContent = list.length + ' listings found';
+        if (!list || list.length === 0) {
+            container.innerHTML = '<div class="sold-log-empty">No active listings for this date.</div>';
+            return;
+        }
+        var html = '<table class="table data-table sold-log-table">';
+        html += '<thead><tr>';
+        html += '<th style="width:35px">No</th>';
+        html += '<th class="vehicle-col">Name &amp; Model</th>';
+        html += '<th>Year</th>';
+        html += '<th>Depreciation</th>';
+        html += '<th>Dealer</th>';
+        html += '<th>Price</th>';
+        html += '</tr></thead><tbody>';
+        list.forEach(function (entry, idx) {
+            html += '<tr>';
+            html += '<td class="no-col">' + (idx + 1) + '</td>';
+            html += '<td class="vehicle-col">' + (entry.make_model || '–') + '</td>';
+            html += '<td>' + (entry.registered_year != null ? entry.registered_year : '–') + '</td>';
+            html += '<td class="depre-cell">' + (entry.depreciation || '–') + '</td>';
+            html += '<td>' + (entry.dealer_name || '–') + '</td>';
+            html += '<td class="price-cell">' + (entry.price != null ? formatPrice(entry.price) : '–') + '</td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '<div class="sold-log-empty">Error loading listings.</div>';
+    }
 }
 
 async function loadSoldLog() {
@@ -397,164 +458,40 @@ document.addEventListener('DOMContentLoaded', function () {
     setReportDate(today);
     loadDailyReport();
     loadHistory();
-    loadSoldLog();
+    // Set default dates for log sections
+    var activeDate = document.getElementById('activeLogDate');
+    var soldDate = document.getElementById('soldLogDate');
+    if (activeDate) activeDate.value = today;
+    if (soldDate) soldDate.value = today;
+    // Load stats for badge
+    loadActiveLogCount(today);
+    loadSoldLogCount(today);
 });
 
-// ============================================================
-// DEBUG CONSOLE FUNCTIONS
-// ============================================================
-
-function debugLog(message, type = 'info') {
-    const output = document.getElementById('debugOutput');
-    const timestamp = new Date().toLocaleTimeString();
-    const line = document.createElement('div');
-
-    let icon = '';
-    let className = 'debug-log-info';
-
-    if (type === 'success') {
-        icon = '✓';
-        className = 'debug-log-success';
-    } else if (type === 'error') {
-        icon = '✗';
-        className = 'debug-log-error';
-    } else if (type === 'warning') {
-        icon = '⚠';
-        className = 'debug-log-warning';
-    } else if (type === 'info') {
-        icon = 'ℹ';
-        className = 'debug-log-info';
-    }
-
-    line.innerHTML = `<span class="debug-log-timestamp">[${timestamp}]</span> <span class="${className}">${icon} ${message}</span>`;
-    output.appendChild(line);
-    output.scrollTop = output.scrollHeight;
-}
-
-function clearDebugLogs() {
-    document.getElementById('debugOutput').innerHTML = '';
-    debugLog('Debug console cleared', 'info');
-}
-
-function copyDebugLogs() {
-    const output = document.getElementById('debugOutput');
-    const text = output.innerText;
-
-    if (!text || text.includes('No logs yet')) {
-        showNotification('No logs to copy', true);
-        return;
-    }
-
-    navigator.clipboard.writeText(text).then(() => {
-        showNotification('Logs copied to clipboard!');
-        debugLog('Logs copied to clipboard', 'success');
-    }).catch(err => {
-        showNotification('Failed to copy: ' + err, true);
-    });
-}
-
-async function runQuickTest() {
-    debugLog('========================================', 'info');
-    debugLog('QUICK DIAGNOSTIC TEST STARTED', 'info');
-    debugLog('========================================', 'info');
-
+async function loadActiveLogCount(date) {
     try {
-        debugLog('Running comprehensive diagnostics...', 'info');
-
-        const response = await fetch('/api/debug/quick-test', {
-            method: 'POST'
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            debugLog('Test completed successfully', 'success');
-            debugLog('========================================', 'info');
-
-            // Display results
-            data.results.forEach(result => {
-                const type = result.success ? 'success' : 'error';
-                debugLog(`[${result.test}] ${result.message}`, type);
-
-                if (result.details) {
-                    debugLog(`  Details: ${result.details}`, 'info');
-                }
-            });
-
-            debugLog('========================================', 'info');
-            debugLog(`Summary: ${data.summary}`, data.all_passed ? 'success' : 'warning');
-
-            if (!data.all_passed) {
-                debugLog('⚠ Some tests failed. Copy logs and send to developer.', 'warning');
-            }
-        } else {
-            debugLog(`Test failed: ${data.error || 'Unknown error'}`, 'error');
-        }
-
-    } catch (error) {
-        debugLog(`Error running test: ${error.message}`, 'error');
-        debugLog('Make sure the backend is running and accessible', 'warning');
-    }
+        var r = await fetch('/api/listings?date=' + date + '&limit=1');
+        if (!r.ok) return;
+        // Use statistics endpoint for count
+        var r2 = await fetch('/api/statistics');
+        if (!r2.ok) return;
+        var stats = await r2.json();
+        var badge = document.getElementById('activeLogBadge');
+        if (badge) badge.textContent = stats.total_listings;
+    } catch(e) {}
 }
 
-async function testNetwork() {
-    debugLog('Testing network connectivity...', 'info');
-
+async function loadSoldLogCount(date) {
     try {
-        const response = await fetch('/api/debug/test-network', {
-            method: 'POST'
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-            debugLog(`✓ Network test passed`, 'success');
-            debugLog(`  SGCarMart.com: HTTP ${data.status_code}`, 'success');
-            debugLog(`  Response time: ${data.response_time}ms`, 'info');
-        } else {
-            debugLog(`✗ Network test failed: ${data.error}`, 'error');
-            debugLog('  Possible causes:', 'warning');
-            debugLog('    - Server firewall blocking outgoing HTTPS', 'warning');
-            debugLog('    - DNS resolution issue', 'warning');
-            debugLog('    - SGCarMart blocking server IP', 'warning');
+        var r = await fetch('/api/sold-log?date=' + date);
+        if (!r.ok) return;
+        var list = await r.json();
+        var badge = document.getElementById('soldLogCountBadge');
+        if (badge) {
+            badge.textContent = list.length + ' entries';
+            badge.style.display = list.length > 0 ? 'inline-block' : 'none';
         }
-    } catch (error) {
-        debugLog(`Error: ${error.message}`, 'error');
-    }
+    } catch(e) {}
 }
 
-async function testBrowser() {
-    debugLog('Testing browser (Playwright/Chromium)...', 'info');
-    debugLog('This may take 10-30 seconds...', 'info');
-
-    try {
-        const response = await fetch('/api/debug/test-browser', {
-            method: 'POST'
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-            debugLog(`✓ Browser test passed`, 'success');
-            debugLog(`  Chromium launched: OK`, 'success');
-            debugLog(`  Page loaded: ${data.page_title}`, 'success');
-            debugLog(`  Listings found: ${data.listings_count}`, 'info');
-
-            if (data.listings_count === 0) {
-                debugLog('⚠ Warning: No listings found on search page', 'warning');
-                debugLog('  Possible causes:', 'warning');
-                debugLog('    - Page structure changed', 'warning');
-                debugLog('    - JavaScript selectors need update', 'warning');
-                debugLog('    - SGCarMart blocking detection', 'warning');
-            }
-        } else {
-            debugLog(`✗ Browser test failed: ${data.error}`, 'error');
-            debugLog('  Common fixes:', 'warning');
-            debugLog('    - Run: playwright install chromium', 'info');
-            debugLog('    - Run: playwright install-deps chromium', 'info');
-            debugLog('    - Check Dockerfile has all dependencies', 'info');
-        }
-    } catch (error) {
-        debugLog(`Error: ${error.message}`, 'error');
-    }
-}
+// (Debug console removed - replaced by How It Works guide)
