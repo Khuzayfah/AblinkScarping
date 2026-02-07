@@ -80,25 +80,31 @@ function buildTable(dailyData) {
 
     if (!dailyData || !dailyData.groups) return;
 
+    var colSpan = 6;
+
     // Build header row
     var headerTr = document.createElement('tr');
-    ['No', 'Name & Model', 'Year', 'Depreciation', 'Dealer'].forEach(function (label) {
+    ['No', 'Name & Model', 'Year Reg', 'Depreciation', 'Dealer Name', 'Price'].forEach(function (label) {
         var th = document.createElement('th');
         th.textContent = label;
         if (label === 'Name & Model') th.className = 'vehicle-col';
-        if (label === 'No') th.style.width = '50px';
+        if (label === 'No') th.style.width = '45px';
         headerTr.appendChild(th);
     });
     thead.appendChild(headerTr);
 
     var groups = dailyData.groups || [];
     groups.forEach(function (group) {
+        // Count total sold in this category
+        var catTotal = 0;
+        (group.models || []).forEach(function (m) { catTotal += (m.entries || []).length; });
+
         // Category header row
         var catTr = document.createElement('tr');
         catTr.className = 'category-row';
         var catTd = document.createElement('td');
-        catTd.colSpan = 5;
-        catTd.textContent = group.category;
+        catTd.colSpan = colSpan;
+        catTd.innerHTML = group.category + (catTotal > 0 ? ' <span style="opacity:0.7;font-size:0.8rem;">(' + catTotal + ' sold)</span>' : '');
         catTr.appendChild(catTd);
         container.appendChild(catTr);
 
@@ -113,19 +119,20 @@ function buildTable(dailyData) {
                 emptyTr.innerHTML =
                     '<td class="no-col">–</td>' +
                     '<td class="vehicle-col">' + modelData.name_model + '</td>' +
-                    '<td>–</td><td>–</td><td>–</td>';
+                    '<td>–</td><td>–</td><td>–</td><td>–</td>';
                 container.appendChild(emptyTr);
             } else {
-                // Model header sub-row (first entry)
                 entries.forEach(function (entry, idx) {
                     var tr = document.createElement('tr');
                     if (idx === 0) tr.className = 'model-first-row';
+                    var priceStr = entry.price != null ? formatPrice(entry.price) : '–';
                     tr.innerHTML =
                         '<td class="no-col">' + (idx + 1) + '</td>' +
                         '<td class="vehicle-col">' + (idx === 0 ? modelData.name_model : '') + '</td>' +
                         '<td>' + (entry.year_registered || '–') + '</td>' +
-                        '<td>' + (entry.depreciation || '–') + '</td>' +
-                        '<td>' + (entry.dealer_name || '–') + '</td>';
+                        '<td class="depre-cell">' + (entry.depreciation || '–') + '</td>' +
+                        '<td>' + (entry.dealer_name || '–') + '</td>' +
+                        '<td class="price-cell">' + priceStr + '</td>';
                     container.appendChild(tr);
                 });
             }
@@ -204,7 +211,7 @@ async function loadDailyReport() {
             var tbody = document.getElementById('dataTableBody');
             var thead = document.getElementById('tableHead');
             thead.innerHTML = '';
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:#9ca3af;"><i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>No sold data for this date.<br>Click REFRESH DATA to scrape, or navigate to another date.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#9ca3af;"><i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>No sold data for this date.<br>Click REFRESH DATA to scrape, or navigate to another date.</td></tr>';
         }
         var totalSold = data.summary ? (data.summary.total_sold || 0) : 0;
         var badge = document.getElementById('soldCountBadge');
@@ -327,13 +334,41 @@ function formatSoldDate(dateStr) {
     return day + '-' + mon + '-' + year;
 }
 
-function buildSoldLogLine(entry) {
-    var date = '<span class="sold-log-date">' + formatSoldDate(entry.sold_date) + '</span>';
-    var make = '<span class="sold-log-make">' + (entry.make_model || '–') + '</span>';
-    var year = '<span class="sold-log-year">' + (entry.year_registered != null ? entry.year_registered : '–') + '</span>';
-    var depre = '<span class="sold-log-depre">' + (entry.depreciation || '–') + '</span>';
-    var dealer = '<span class="sold-log-dealer">' + (entry.dealer_name || '–') + '</span>';
-    return date + ' / ' + make + ' / ' + year + ' / ' + depre + ' / ' + dealer;
+function buildSoldLogTable(list) {
+    if (!list || list.length === 0) {
+        return '<div class="sold-log-empty">No sold log entries for this period.</div>';
+    }
+    var html = '<table class="table data-table sold-log-table">';
+    html += '<thead><tr>';
+    html += '<th style="width:40px">No</th>';
+    html += '<th>Date</th>';
+    html += '<th class="vehicle-col">Name &amp; Model</th>';
+    html += '<th>Year</th>';
+    html += '<th>Depreciation</th>';
+    html += '<th>Dealer</th>';
+    html += '<th>Price</th>';
+    html += '</tr></thead><tbody>';
+    list.forEach(function (entry, idx) {
+        html += '<tr>';
+        html += '<td class="no-col">' + (idx + 1) + '</td>';
+        html += '<td>' + formatSoldDate(entry.sold_date) + '</td>';
+        html += '<td class="vehicle-col">' + (entry.make_model || '–') + '</td>';
+        html += '<td>' + (entry.year_registered != null ? entry.year_registered : '–') + '</td>';
+        html += '<td class="depre-cell">' + (entry.depreciation || '–') + '</td>';
+        html += '<td>' + (entry.dealer_name || '–') + '</td>';
+        html += '<td class="price-cell">' + (entry.price != null ? formatPrice(entry.price) : '–') + '</td>';
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    return html;
+}
+
+function toggleSoldLog() {
+    var content = document.getElementById('soldLogContent');
+    var icon = document.getElementById('soldLogToggleIcon');
+    var isHidden = content.style.display === 'none';
+    content.style.display = isHidden ? 'block' : 'none';
+    icon.className = isHidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
 }
 
 async function loadSoldLog() {
@@ -341,17 +376,16 @@ async function loadSoldLog() {
     var date = dateInput && dateInput.value ? dateInput.value : '';
     var url = '/api/sold-log' + (date ? '?date=' + date : '');
     var container = document.getElementById('soldLogContainer');
+    var countBadge = document.getElementById('soldLogCountBadge');
     try {
         var r = await fetch(url);
         if (!r.ok) throw new Error('Failed to load sold log');
         var list = await r.json();
-        if (!list || list.length === 0) {
-            container.innerHTML = '<div class="sold-log-empty">No sold log entries for this period.</div>';
-            return;
+        if (countBadge) {
+            countBadge.textContent = list.length + ' entries';
+            countBadge.style.display = list.length > 0 ? 'inline-block' : 'none';
         }
-        container.innerHTML = list.map(function (entry) {
-            return '<div class="sold-log-line">' + buildSoldLogLine(entry) + '</div>';
-        }).join('');
+        container.innerHTML = buildSoldLogTable(list);
     } catch (e) {
         container.innerHTML = '<div class="sold-log-empty">Error loading sold log.</div>';
     }

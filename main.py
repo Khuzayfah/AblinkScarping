@@ -280,7 +280,9 @@ def _build_daily_table(sold_rows: list, report_date: str) -> Dict[str, Any]:
         dealer = (row.dealer_name or "–").strip()
         year = row.year_registered if row.year_registered else None
         dep = (row.depreciation or "–").strip()
-        agg[model]["items"].append((dealer, year, dep))
+        price = getattr(row, 'price', None)
+        raw_name = row.make_model or ''
+        agg[model]["items"].append((dealer, year, dep, price, raw_name))
 
     # Build grouped structure using VEHICLE_CATEGORIES from config
     groups = []
@@ -303,7 +305,9 @@ def _build_daily_table(sold_rows: list, report_date: str) -> Dict[str, Any]:
                 entries.append({
                     "year_registered": str(item[1]) if item[1] else "–",
                     "depreciation": item[2],
-                    "dealer_name": item[0]
+                    "dealer_name": item[0],
+                    "price": item[3],
+                    "raw_name": item[4]
                 })
 
             category_items.append({

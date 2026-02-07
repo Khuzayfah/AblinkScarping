@@ -83,15 +83,17 @@ class AppSetting(Base):
 class SoldLog(Base):
     """Daily Sold Log: when a unit from Chart 1 disappears (sold), log it"""
     __tablename__ = "sold_log"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     sold_date = Column(DateTime, index=True)  # date we detected as sold
     make_model = Column(String(200), index=True)
     year_registered = Column(Integer)
-    depreciation = Column(String(100))  # e.g. $16,890 or COE info
+    depreciation = Column(String(100))  # e.g. $16,890/yr
     dealer_name = Column(String(200))
+    price = Column(Float)
+    listing_url = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
-    
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -100,6 +102,8 @@ class SoldLog(Base):
             "year_registered": self.year_registered,
             "depreciation": self.depreciation,
             "dealer_name": self.dealer_name,
+            "price": self.price,
+            "listing_url": self.listing_url,
         }
 
 # Create engine and session

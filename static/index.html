@@ -213,6 +213,11 @@
         }
         .data-table .price-cell {
             white-space: nowrap;
+            font-weight: 500;
+        }
+        .data-table .depre-cell {
+            color: #c2410c;
+            font-weight: 600;
         }
         /* Calendar Navigation */
         .calendar-nav {
@@ -295,30 +300,72 @@
             border-radius: 8px;
             font-weight: 500;
         }
-        /* Chart 3: Daily Sold Log - one line per entry, colored fields */
+        /* Chart 3: Daily Sold Log - collapsible table */
         .sold-log-section {
-            padding: 24px 32px;
+            padding: 0;
             border-top: 1px solid #e5e7eb;
             background: #fafafa;
         }
-        .sold-log-section h3 {
+        .sold-log-header {
+            padding: 16px 32px;
+            background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+        .sold-log-header:hover {
+            background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+        }
+        .sold-log-header h3 {
             font-size: 1.1rem;
             font-weight: 700;
             color: #1f2937;
-            margin-bottom: 16px;
         }
-        .sold-log-line {
-            padding: 8px 0;
-            border-bottom: 1px solid #e5e7eb;
-            font-size: 0.95rem;
-            line-height: 1.5;
+        #soldLogContent {
+            padding: 16px 32px 24px 32px;
         }
-        .sold-log-line:last-child { border-bottom: none; }
-        .sold-log-date { color: #4b5563; font-weight: 500; }
-        .sold-log-make { color: #1e40af; font-weight: 600; }
-        .sold-log-year { color: #166534; font-weight: 600; }
-        .sold-log-depre { color: #c2410c; font-weight: 600; }
-        .sold-log-dealer { color: #374151; }
+        .sold-log-table thead {
+            background: #374151;
+            color: white;
+        }
+        .sold-log-table thead th {
+            padding: 10px 8px;
+            font-weight: 600;
+            text-align: center;
+            border: 1px solid #4b5563;
+            font-size: 0.85rem;
+        }
+        .sold-log-table thead th.vehicle-col {
+            text-align: left;
+            min-width: 200px;
+        }
+        .sold-log-table tbody td {
+            padding: 8px;
+            border: 1px solid #e5e7eb;
+            text-align: center;
+            font-size: 0.85rem;
+        }
+        .sold-log-table tbody td.vehicle-col {
+            text-align: left;
+            font-weight: 500;
+            color: #1e40af;
+        }
+        .sold-log-table tbody td.depre-cell {
+            color: #c2410c;
+            font-weight: 600;
+        }
+        .sold-log-table tbody td.price-cell {
+            white-space: nowrap;
+            font-weight: 500;
+        }
+        .sold-log-table tbody tr:nth-child(even) {
+            background: #f9fafb;
+        }
+        .sold-log-table tbody tr:hover {
+            background: #eff6ff;
+        }
         .sold-log-empty { color: #9ca3af; font-style: italic; padding: 12px 0; }
 
         /* Debug Console Panel */
@@ -485,14 +532,23 @@
             </div>
 
             <div class="sold-log-section">
-                <h3>DAILY SOLD LOG</h3>
-                <div class="d-flex align-items-center gap-2 mb-2">
-                    <label class="mb-0 small fw-bold">Filter by date:</label>
-                    <input type="date" id="soldLogDate">
-                    <button class="btn btn-sm btn-outline-secondary" onclick="loadSoldLog()">Load</button>
+                <div class="sold-log-header" onclick="toggleSoldLog()" style="cursor:pointer;">
+                    <h3 style="margin:0;display:flex;align-items:center;gap:8px;">
+                        <i class="bi bi-chevron-down" id="soldLogToggleIcon"></i>
+                        DAILY SOLD LOG
+                        <span class="badge bg-info" id="soldLogCountBadge" style="display:none;font-size:0.75rem;">0 entries</span>
+                    </h3>
+                    <small class="text-muted">Click to expand / collapse</small>
                 </div>
-                <div id="soldLogContainer">
-                    <div class="sold-log-empty">Loading...</div>
+                <div id="soldLogContent" style="display:none;">
+                    <div class="d-flex align-items-center gap-2 mb-2 mt-2">
+                        <label class="mb-0 small fw-bold">Filter by date:</label>
+                        <input type="date" id="soldLogDate">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="loadSoldLog()">Load</button>
+                    </div>
+                    <div id="soldLogContainer" style="overflow-x:auto;">
+                        <div class="sold-log-empty">Loading...</div>
+                    </div>
                 </div>
             </div>
 

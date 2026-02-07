@@ -8,7 +8,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet
 
 DAILY_TABLE_COLUMNS = [
-    'date', 'name_model', 'year_registered', 'depreciation', 'dealer_name'
+    'date', 'name_model', 'year_registered', 'depreciation', 'dealer_name', 'price'
 ]
 
 
@@ -48,10 +48,13 @@ class ExportService:
                         'no': '',
                         'year_registered': '–',
                         'depreciation': '–',
-                        'dealer_name': '–'
+                        'dealer_name': '–',
+                        'price': '–'
                     })
                 else:
                     for i, entry in enumerate(entries, 1):
+                        price = entry.get('price')
+                        price_str = f"${price:,.0f}" if price else '–'
                         rows.append({
                             'date': report_date,
                             'category': category,
@@ -59,7 +62,8 @@ class ExportService:
                             'no': i,
                             'year_registered': entry['year_registered'],
                             'depreciation': entry['depreciation'],
-                            'dealer_name': entry['dealer_name']
+                            'dealer_name': entry['dealer_name'],
+                            'price': price_str
                         })
         return rows
 
@@ -68,7 +72,7 @@ class ExportService:
         """Convert grouped daily data to DataFrame for export."""
         rows = ExportService._flatten_grouped_data(daily_data)
         if not rows:
-            return pd.DataFrame(columns=['date', 'category', 'name_model', 'no', 'year_registered', 'depreciation', 'dealer_name'])
+            return pd.DataFrame(columns=['date', 'category', 'name_model', 'no', 'year_registered', 'depreciation', 'dealer_name', 'price'])
         return pd.DataFrame(rows)
 
     @staticmethod

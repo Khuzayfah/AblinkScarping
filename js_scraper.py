@@ -369,11 +369,23 @@ class SGCarMartJSScraper:
                 if m:
                     dealer = m.group(1).strip()
 
-            # Extract depreciation
+            # Extract depreciation - try HTML content first
             dep = ''
             dep_match = re.search(r'\$\s*([\d,]+)\s*/\s*yr', text)
             if dep_match:
                 dep = '$' + dep_match.group(1) + '/yr'
+
+            # Also try RSC payload for depreciation if not found in HTML
+            if not dep:
+                rsc_dep = _extract_rsc_num(text, 'depreciation', 0, len(text))
+                if rsc_dep and rsc_dep > 0:
+                    dep = f"${rsc_dep:,}/yr"
+
+            # Try RSC payload for dealer name if not found in title
+            if not dealer:
+                rsc_dealer_code = _extract_rsc_num(text, 'dealer_code', 0, len(text))
+                if rsc_dealer_code and rsc_dealer_code in dealer_map:
+                    dealer = dealer_map[rsc_dealer_code]
 
             return dealer, dep
         except Exception as e:
@@ -630,7 +642,7 @@ class SGCarMartJSScraper:
 
             processed = []
             detail_fetch_count = 0
-            MAX_DETAIL_FETCHES = 30  # Limit detail page fetches to avoid 429
+            MAX_DETAIL_FETCHES = 80  # Limit detail page fetches to avoid 429
 
             for item in sold_data:
                 name = item.get('car_model', '')
@@ -648,12 +660,13 @@ class SGCarMartJSScraper:
                 if not dealer_name and dealer_code:
                     dealer_name = global_dealer_map.get(dealer_code, '')
 
-                # Fetch detail page only for missing dealer (not for depreciation - sold items don't have it)
-                if not dealer_name and link and detail_fetch_count < MAX_DETAIL_FETCHES:
+                # Fetch detail page for missing dealer OR missing depreciation
+                needs_detail = (not dealer_name or not dep_str) and link and detail_fetch_count < MAX_DETAIL_FETCHES
+                if needs_detail:
                     time.sleep(1.5)
                     detail_dealer, detail_dep = self._fetch_detail_page_dealer(session, link, global_dealer_map)
                     detail_fetch_count += 1
-                    if detail_dealer:
+                    if detail_dealer and not dealer_name:
                         dealer_name = detail_dealer
                     if detail_dep and not dep_str:
                         dep_str = detail_dep
@@ -703,6 +716,8 @@ class SGCarMartJSScraper:
                     year_registered=item.get('registered_year'),
                     depreciation=dep,
                     dealer_name=item.get('dealer_name', '–'),
+                    price=item.get('price'),
+                    listing_url=item.get('listing_url', ''),
                 ))
             db.commit()
             logger.info(f"[OK] Saved {len(data)} sold listings to SoldLog")
