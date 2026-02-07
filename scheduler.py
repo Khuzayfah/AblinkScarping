@@ -5,6 +5,7 @@ from datetime import datetime
 import config
 from js_scraper import SGCarMartJSScraper
 from database import SessionLocal, ScrapeLog
+from sold_log_service import detect_and_log_sold
 
 class ScraperScheduler:
     """Scheduler for automated scraping"""
@@ -15,13 +16,16 @@ class ScraperScheduler:
         self._hour = config.SCRAPING_SCHEDULE_HOUR
         self._minute = config.SCRAPING_SCHEDULE_MINUTE
         self._interval_days = 1  # Default: every day
-        
+
     def scrape_job(self):
-        """Job to execute scraping (active listings + sold listings)"""
+        """Job to execute scraping (active listings + sold detection)"""
         print(f"Automated scrape triggered at {datetime.now()}")
         try:
-            self.scraper.scrape_vehicle_listings()
-            self.scraper.scrape_sold_listings()
+            results = self.scraper.scrape_vehicle_listings()
+            if results:
+                # Detect sold by comparing previous vs current
+                sold_count = detect_and_log_sold()
+                print(f"Sold detection: {sold_count} vehicles sold")
             db = SessionLocal()
             try:
                 log = db.query(ScrapeLog).first()

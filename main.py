@@ -15,6 +15,7 @@ from database import init_db, get_db, VehicleListing, DailyReport, ScrapeLog, Ap
 from js_scraper import SGCarMartJSScraper
 from export_service import ExportService
 from scheduler import ScraperScheduler
+from sold_log_service import detect_and_log_sold
 import config
 
 logger = logging.getLogger("main")
@@ -112,12 +113,13 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
             results = scraper.scrape_vehicle_listings()
             logger.info(f"Active listings: {len(results) if results else 0} vehicles found")
 
-            logger.info("Starting SOLD listings scrape...")
-            sold_results = scraper.scrape_sold_listings()
-            logger.info(f"Sold listings: {len(sold_results) if sold_results else 0} vehicles found")
-
-            if not results and not sold_results:
-                logger.warning("Scrape returned 0 results - possible Cloudflare block or site structure change")
+            if results:
+                # Detect sold vehicles by comparing previous vs current active listings
+                logger.info("Detecting sold vehicles (comparing with previous scrape)...")
+                sold_count = detect_and_log_sold()
+                logger.info(f"Sold detection complete: {sold_count} vehicles sold")
+            else:
+                logger.warning("Scrape returned 0 results - skipping sold detection")
         except Exception as e:
             logger.error(f"Scrape failed with error: {e}")
             import traceback
