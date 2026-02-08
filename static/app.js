@@ -346,20 +346,20 @@ function buildSoldLogTable(list) {
     var html = '<table class="table data-table sold-log-table">';
     html += '<thead><tr>';
     html += '<th style="width:40px">No</th>';
+    html += '<th>Date Sold</th>';
     html += '<th class="vehicle-col">Name &amp; Model</th>';
     html += '<th>Year</th>';
     html += '<th>Depreciation</th>';
     html += '<th>Dealer</th>';
-    html += '<th>Price</th>';
     html += '</tr></thead><tbody>';
     list.forEach(function (entry, idx) {
         html += '<tr>';
         html += '<td class="no-col">' + (idx + 1) + '</td>';
+        html += '<td>' + formatSoldDate(entry.scrape_date) + '</td>';
         html += '<td class="vehicle-col">' + (entry.make_model || '–') + '</td>';
         html += '<td>' + (entry.year_registered != null ? entry.year_registered : '–') + '</td>';
         html += '<td class="depre-cell">' + (entry.depreciation || '–') + '</td>';
         html += '<td>' + (entry.dealer_name || '–') + '</td>';
-        html += '<td class="price-cell">' + (entry.price != null ? formatPrice(entry.price) : '–') + '</td>';
         html += '</tr>';
     });
     html += '</tbody></table>';
