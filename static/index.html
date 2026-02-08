@@ -630,20 +630,19 @@
                 <div class="data-log-header log-sold" onclick="toggleSoldLog()">
                     <h4>
                         <i class="bi bi-chevron-right" id="soldLogToggleIcon"></i>
-                        <i class="bi bi-cart-x"></i> Daily Sold Log
-                        <span class="badge bg-danger" id="soldLogCountBadge" style="display:none;">0 entries</span>
+                        <i class="bi bi-cart-x"></i> SGCarMart Sold Listings (All-Time)
+                        <span class="badge bg-danger" id="soldLogCountBadge" style="display:none;">0</span>
                     </h4>
-                    <small class="text-muted">Click to expand</small>
+                    <small class="text-muted">Click to expand — accumulated sold from SGCarMart</small>
                 </div>
                 <div id="soldLogContent" style="display:none;">
                     <div class="data-log-body">
                         <div class="d-flex align-items-center gap-2 mb-2">
-                            <label class="mb-0 small fw-bold">Date:</label>
-                            <input type="date" id="soldLogDate">
-                            <button class="btn btn-sm btn-outline-danger" onclick="loadSoldLog()">Load</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="loadSgcarmartSold()"><i class="bi bi-arrow-clockwise"></i> Load</button>
+                            <span class="small text-muted" id="soldLogInfo">All sold listings from SGCarMart (avl=s)</span>
                         </div>
                         <div id="soldLogContainer" style="overflow-x:auto;">
-                            <div class="sold-log-empty">Select a date and click Load.</div>
+                            <div class="sold-log-empty">Click Load to view all sold listings from SGCarMart.</div>
                         </div>
                     </div>
                 </div>
@@ -699,7 +698,7 @@
                         <li><b>History dropdown</b> &mdash; Jump to any date that has sold data. The number in parentheses shows how many vehicles were sold on that day.</li>
                         <li><b>Export (CSV / Excel / PDF)</b> &mdash; Download the daily sold report in your preferred format.</li>
                         <li><b>Active Listings Data</b> &mdash; Expand this section to see the raw active listing data that was scraped for any date.</li>
-                        <li><b>Daily Sold Log</b> &mdash; Expand this section to see the raw sold log entries with all fields.</li>
+                        <li><b>SGCarMart Sold Listings</b> &mdash; Expand this section to see all-time accumulated sold listings scraped directly from SGCarMart (avl=s). This grows over time as more sold vehicles are discovered.</li>
                         <li><b>Auto Schedule</b> &mdash; Set a time for automatic daily scraping (e.g., 06:00 AM). The server will scrape and detect sold vehicles automatically every day.</li>
                         <li><b>Clear button</b> &mdash; Deletes sold data for a specific date. Use this if the data looks incorrect, then re-scrape.</li>
                     </ul>

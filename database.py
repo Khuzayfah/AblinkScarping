@@ -106,6 +106,34 @@ class SoldLog(Base):
             "listing_url": self.listing_url,
         }
 
+
+class SgcarmartSold(Base):
+    """Accumulated sold listings from SGCarMart (avl=s) - all-time sold vehicles"""
+    __tablename__ = "sgcarmart_sold"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scrape_date = Column(DateTime, default=datetime.now, index=True)
+    make_model = Column(String(200), index=True)
+    year_registered = Column(Integer)
+    depreciation = Column(String(100))
+    dealer_name = Column(String(200))
+    price = Column(Float)
+    listing_url = Column(Text)
+    created_at = Column(DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "scrape_date": self.scrape_date.strftime("%Y-%m-%d") if self.scrape_date else None,
+            "make_model": self.make_model,
+            "year_registered": self.year_registered,
+            "depreciation": self.depreciation,
+            "dealer_name": self.dealer_name,
+            "price": self.price,
+            "listing_url": self.listing_url,
+        }
+
+
 # Create engine and session
 engine = create_engine(config.DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

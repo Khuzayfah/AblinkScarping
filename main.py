@@ -11,7 +11,7 @@ from collections import defaultdict
 import os
 from contextlib import asynccontextmanager
 
-from database import init_db, get_db, VehicleListing, DailyReport, ScrapeLog, AppSetting, SoldLog
+from database import init_db, get_db, VehicleListing, DailyReport, ScrapeLog, AppSetting, SoldLog, SgcarmartSold
 from js_scraper import SGCarMartJSScraper
 from export_service import ExportService
 from scheduler import ScraperScheduler
@@ -109,21 +109,27 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
         scraper = SGCarMartJSScraper(headless=True)
         try:
             # Step 1: Scrape active listings
-            logger.info("[MANUAL] Step 1/2: Scraping active listings...")
+            logger.info("[MANUAL] Step 1/3: Scraping active listings...")
             results = scraper.scrape_vehicle_listings()
             active_count = len(results) if results else 0
             logger.info(f"[MANUAL] Active listings: {active_count} vehicles found")
 
-            # Step 2: Detect sold by comparison (previous vs current)
+            # Step 2: Detect sold by comparison (previous vs current) → sold_log
             comparison_sold = 0
             if results:
-                logger.info("[MANUAL] Step 2/2: Detecting sold vehicles (comparison)...")
+                logger.info("[MANUAL] Step 2/3: Detecting sold vehicles (comparison)...")
                 comparison_sold = detect_and_log_sold()
-                logger.info(f"[MANUAL] Sold detection: {comparison_sold} vehicles disappeared since last scrape")
+                logger.info(f"[MANUAL] Sold today: {comparison_sold} vehicles disappeared since last scrape")
             else:
                 logger.warning("[MANUAL] Skipping sold detection - no active listings scraped")
 
-            logger.info(f"[MANUAL] Complete: Active={active_count} | Sold today={comparison_sold}")
+            # Step 3: Scrape accumulated sold from SGCarMart (avl=s) → sgcarmart_sold
+            logger.info("[MANUAL] Step 3/3: Scraping SGCarMart sold listings (avl=s)...")
+            sold_results = scraper.scrape_sold_listings()
+            avl_count = len(sold_results) if sold_results else 0
+            logger.info(f"[MANUAL] SGCarMart sold (accumulated): {avl_count} vehicles")
+
+            logger.info(f"[MANUAL] Complete: Active={active_count} | Sold today={comparison_sold} | SGCarMart sold={avl_count}")
         except Exception as e:
             logger.error(f"Scrape failed with error: {e}")
             import traceback
@@ -433,6 +439,20 @@ async def get_sold_log(
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     rows = query.limit(limit).all()
     return [r.to_dict() for r in rows]
+
+
+@app.get("/api/sgcarmart-sold")
+async def get_sgcarmart_sold(
+    limit: int = 500,
+    db: Session = Depends(get_db)
+):
+    """Get accumulated sold listings from SGCarMart (avl=s) - all-time data"""
+    rows = db.query(SgcarmartSold).order_by(SgcarmartSold.id.desc()).limit(limit).all()
+    total = db.query(SgcarmartSold).count()
+    return {
+        "total": total,
+        "items": [r.to_dict() for r in rows]
+    }
 
 
 def _get_daily_table_for_date(target_date, db: Session) -> Dict[str, Any]:

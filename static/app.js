@@ -341,12 +341,11 @@ function formatSoldDate(dateStr) {
 
 function buildSoldLogTable(list) {
     if (!list || list.length === 0) {
-        return '<div class="sold-log-empty">No sold log entries for this period.</div>';
+        return '<div class="sold-log-empty">No sold listings found. Click REFRESH DATA to scrape from SGCarMart.</div>';
     }
     var html = '<table class="table data-table sold-log-table">';
     html += '<thead><tr>';
     html += '<th style="width:40px">No</th>';
-    html += '<th>Date</th>';
     html += '<th class="vehicle-col">Name &amp; Model</th>';
     html += '<th>Year</th>';
     html += '<th>Depreciation</th>';
@@ -356,7 +355,6 @@ function buildSoldLogTable(list) {
     list.forEach(function (entry, idx) {
         html += '<tr>';
         html += '<td class="no-col">' + (idx + 1) + '</td>';
-        html += '<td>' + formatSoldDate(entry.sold_date) + '</td>';
         html += '<td class="vehicle-col">' + (entry.make_model || '–') + '</td>';
         html += '<td>' + (entry.year_registered != null ? entry.year_registered : '–') + '</td>';
         html += '<td class="depre-cell">' + (entry.depreciation || '–') + '</td>';
@@ -437,23 +435,24 @@ async function loadActiveLog() {
     }
 }
 
-async function loadSoldLog() {
-    var dateInput = document.getElementById('soldLogDate');
-    var date = dateInput && dateInput.value ? dateInput.value : '';
-    var url = '/api/sold-log' + (date ? '?date=' + date : '');
+async function loadSgcarmartSold() {
     var container = document.getElementById('soldLogContainer');
     var countBadge = document.getElementById('soldLogCountBadge');
+    var info = document.getElementById('soldLogInfo');
+    container.innerHTML = '<div class="sold-log-empty">Loading...</div>';
     try {
-        var r = await fetch(url);
-        if (!r.ok) throw new Error('Failed to load sold log');
-        var list = await r.json();
+        var r = await fetch('/api/sgcarmart-sold?limit=500');
+        if (!r.ok) throw new Error('Failed to load');
+        var data = await r.json();
+        var list = data.items || [];
         if (countBadge) {
-            countBadge.textContent = list.length + ' entries';
-            countBadge.style.display = list.length > 0 ? 'inline-block' : 'none';
+            countBadge.textContent = data.total + ' total';
+            countBadge.style.display = data.total > 0 ? 'inline-block' : 'none';
         }
+        if (info) info.textContent = 'Showing ' + list.length + ' of ' + data.total + ' sold listings';
         container.innerHTML = buildSoldLogTable(list);
     } catch (e) {
-        container.innerHTML = '<div class="sold-log-empty">Error loading sold log.</div>';
+        container.innerHTML = '<div class="sold-log-empty">Error loading sold listings.</div>';
     }
 }
 
@@ -465,19 +464,14 @@ document.addEventListener('DOMContentLoaded', function () {
     loadHistory();
     // Set default dates for log sections
     var activeDate = document.getElementById('activeLogDate');
-    var soldDate = document.getElementById('soldLogDate');
     if (activeDate) activeDate.value = today;
-    if (soldDate) soldDate.value = today;
-    // Load stats for badge
+    // Load stats for badges
     loadActiveLogCount(today);
-    loadSoldLogCount(today);
+    loadSgcarmartSoldCount();
 });
 
 async function loadActiveLogCount(date) {
     try {
-        var r = await fetch('/api/listings?date=' + date + '&limit=1');
-        if (!r.ok) return;
-        // Use statistics endpoint for count
         var r2 = await fetch('/api/statistics');
         if (!r2.ok) return;
         var stats = await r2.json();
@@ -486,17 +480,15 @@ async function loadActiveLogCount(date) {
     } catch(e) {}
 }
 
-async function loadSoldLogCount(date) {
+async function loadSgcarmartSoldCount() {
     try {
-        var r = await fetch('/api/sold-log?date=' + date);
+        var r = await fetch('/api/sgcarmart-sold?limit=1');
         if (!r.ok) return;
-        var list = await r.json();
+        var data = await r.json();
         var badge = document.getElementById('soldLogCountBadge');
         if (badge) {
-            badge.textContent = list.length + ' entries';
-            badge.style.display = list.length > 0 ? 'inline-block' : 'none';
+            badge.textContent = data.total + ' total';
+            badge.style.display = data.total > 0 ? 'inline-block' : 'none';
         }
     } catch(e) {}
 }
-
-// (Debug console removed - replaced by How It Works guide)

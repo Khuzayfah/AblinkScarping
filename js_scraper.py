@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
 import config
-from database import SessionLocal, VehicleListing, SoldLog
+from database import SessionLocal, VehicleListing, SoldLog, SgcarmartSold
 
 logger = logging.getLogger("scraper")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -702,19 +702,14 @@ class SGCarMartJSScraper:
         return processed
 
     def _save_sold_to_db(self, data: List[Dict[str, Any]]):
-        """Save sold listings to SoldLog table, skipping duplicates by listing_url for today."""
+        """Save sold listings to SgcarmartSold table (accumulated), skipping duplicates by URL."""
         db = SessionLocal()
         try:
             now = datetime.now()
-            today_start = datetime.combine(now.date(), datetime.min.time())
-            today_end = today_start + timedelta(days=1)
 
-            # Get existing sold URLs for today to avoid duplicates
+            # Get ALL existing URLs to avoid duplicates across all time
             existing_urls = set()
-            existing = db.query(SoldLog.listing_url).filter(
-                SoldLog.sold_date >= today_start,
-                SoldLog.sold_date < today_end,
-            ).all()
+            existing = db.query(SgcarmartSold.listing_url).all()
             for row in existing:
                 if row[0]:
                     existing_urls.add(row[0].split('?')[0])
@@ -731,8 +726,8 @@ class SGCarMartJSScraper:
                 dep = item.get('depreciation', '') or '–'
                 if not dep and item.get('price') is not None:
                     dep = f"${item['price']:,.0f}"
-                db.add(SoldLog(
-                    sold_date=now,
+                db.add(SgcarmartSold(
+                    scrape_date=now,
                     make_model=item.get('make_model', ''),
                     year_registered=item.get('registered_year'),
                     depreciation=dep,
@@ -744,7 +739,7 @@ class SGCarMartJSScraper:
                     existing_urls.add(clean_url)
                 saved += 1
             db.commit()
-            logger.info(f"[OK] Saved {saved} sold listings to SoldLog (skipped {skipped} duplicates)")
+            logger.info(f"[OK] Saved {saved} sold to sgcarmart_sold (skipped {skipped} existing)")
         except Exception as e:
             logger.error(f"Error saving sold data: {e}")
             db.rollback()
