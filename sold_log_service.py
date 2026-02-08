@@ -60,13 +60,16 @@ def detect_and_log_sold():
         today_start = datetime.combine(today, datetime.min.time())
         today_end = today_start + timedelta(days=1)
 
-        # Check if we already have sold log entries for today (avoid duplicates)
-        existing = db.query(SoldLog).filter(
+        # Get existing sold URLs for today to skip duplicates (allows re-detect after clear)
+        existing_sold_urls = set()
+        existing_rows = db.query(SoldLog.listing_url).filter(
             and_(SoldLog.sold_date >= today_start, SoldLog.sold_date < today_end)
-        ).count()
-        if existing > 0:
-            logger.info(f"Sold log already has {existing} entries for {today}, skipping detection")
-            return existing
+        ).all()
+        for row in existing_rows:
+            if row[0]:
+                existing_sold_urls.add(row[0].split('?')[0])
+        if existing_sold_urls:
+            logger.info(f"Already have {len(existing_sold_urls)} sold entries for {today}, will skip duplicates")
 
         # Previous scrape date = latest date in DB that is strictly before today
         prev_date_row = db.query(func.date(VehicleListing.scrape_date).label("d")).filter(
@@ -114,7 +117,14 @@ def detect_and_log_sold():
 
         prev_by_url = {l.listing_url: l for l in previous_listings if l.listing_url}
         logged = 0
+        skipped = 0
         for url in sold_urls:
+            # Skip if already logged today
+            clean_url = url.split('?')[0] if url else ''
+            if clean_url and clean_url in existing_sold_urls:
+                skipped += 1
+                continue
+
             row = prev_by_url.get(url)
             if not row:
                 continue
@@ -139,13 +149,13 @@ def detect_and_log_sold():
                 listing_url=row.listing_url or "",
             ))
             logged += 1
-            logger.info(f"  [SOLD] {row.make_model} | Year: {row.registered_year} | Dep: {dep} | Dealer: {row.dealer_name} | Price: {row.price}")
+            logger.info(f"  [SOLD] {row.make_model} | Year: {row.registered_year} | Dep: {dep} | Dealer: {row.dealer_name}")
 
         if logged:
             db.commit()
-            logger.info(f"[OK] Daily Sold Log: pushed {logged} sold unit(s) for {today}")
+            logger.info(f"[OK] Daily Sold Log: pushed {logged} sold unit(s) for {today} (skipped {skipped} duplicates)")
         else:
-            logger.info("No target vehicles sold today")
+            logger.info(f"No new target vehicles sold today (skipped {skipped} duplicates)")
 
         return logged
     except Exception as e:

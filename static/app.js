@@ -85,11 +85,11 @@ function buildTable(dailyData) {
 
     if (!dailyData || !dailyData.groups) return;
 
-    var colSpan = 6;
+    var colSpan = 5;
 
     // Build header row
     var headerTr = document.createElement('tr');
-    ['No', 'Name & Model', 'Year Reg', 'Depreciation', 'Dealer Name', 'Price'].forEach(function (label) {
+    ['No', 'Name & Model', 'Year Reg', 'Depreciation', 'Dealer Name'].forEach(function (label) {
         var th = document.createElement('th');
         th.textContent = label;
         if (label === 'Name & Model') th.className = 'vehicle-col';
@@ -124,20 +124,18 @@ function buildTable(dailyData) {
                 emptyTr.innerHTML =
                     '<td class="no-col">–</td>' +
                     '<td class="vehicle-col">' + modelData.name_model + '</td>' +
-                    '<td>–</td><td>–</td><td>–</td><td>–</td>';
+                    '<td>–</td><td>–</td><td>–</td>';
                 container.appendChild(emptyTr);
             } else {
                 entries.forEach(function (entry, idx) {
                     var tr = document.createElement('tr');
                     if (idx === 0) tr.className = 'model-first-row';
-                    var priceStr = entry.price != null ? formatPrice(entry.price) : '–';
                     tr.innerHTML =
                         '<td class="no-col">' + (idx + 1) + '</td>' +
                         '<td class="vehicle-col">' + (idx === 0 ? modelData.name_model : '') + '</td>' +
                         '<td>' + (entry.year_registered || '–') + '</td>' +
                         '<td class="depre-cell">' + (entry.depreciation || '–') + '</td>' +
-                        '<td>' + (entry.dealer_name || '–') + '</td>' +
-                        '<td class="price-cell">' + priceStr + '</td>';
+                        '<td>' + (entry.dealer_name || '–') + '</td>';
                     container.appendChild(tr);
                 });
             }
@@ -216,7 +214,7 @@ async function loadDailyReport() {
             var tbody = document.getElementById('dataTableBody');
             var thead = document.getElementById('tableHead');
             thead.innerHTML = '';
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#9ca3af;"><i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>No sold data for this date.<br>Click REFRESH DATA to scrape, or navigate to another date.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:#9ca3af;"><i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>No sold data for this date.<br>Click REFRESH DATA to scrape, or navigate to another date.</td></tr>';
         }
         var totalSold = data.summary ? (data.summary.total_sold || 0) : 0;
         var badge = document.getElementById('soldCountBadge');
@@ -416,7 +414,6 @@ async function loadActiveLog() {
         html += '<th>Year</th>';
         html += '<th>Depreciation</th>';
         html += '<th>Dealer</th>';
-        html += '<th>Price</th>';
         html += '</tr></thead><tbody>';
         list.forEach(function (entry, idx) {
             html += '<tr>';
@@ -425,7 +422,6 @@ async function loadActiveLog() {
             html += '<td>' + (entry.registered_year != null ? entry.registered_year : '–') + '</td>';
             html += '<td class="depre-cell">' + (entry.depreciation || '–') + '</td>';
             html += '<td>' + (entry.dealer_name || '–') + '</td>';
-            html += '<td class="price-cell">' + (entry.price != null ? formatPrice(entry.price) : '–') + '</td>';
             html += '</tr>';
         });
         html += '</tbody></table>';
