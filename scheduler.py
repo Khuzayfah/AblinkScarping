@@ -1,83 +1,128 @@
 """Scheduler for automated scraping tasks"""
+import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
+import pytz
 import config
 from js_scraper import SGCarMartJSScraper
 from database import SessionLocal, ScrapeLog
 from sold_log_service import detect_and_log_sold
 
+logger = logging.getLogger("scheduler")
+
+# Singapore timezone - SGCarMart is a Singapore site
+SGT = pytz.timezone('Asia/Singapore')
+
+
 class ScraperScheduler:
     """Scheduler for automated scraping"""
 
     def __init__(self):
-        self.scheduler = BackgroundScheduler()
-        self.scraper = SGCarMartJSScraper(headless=True)
+        self.scheduler = BackgroundScheduler(timezone=SGT)
         self._hour = config.SCRAPING_SCHEDULE_HOUR
         self._minute = config.SCRAPING_SCHEDULE_MINUTE
-        self._interval_days = 1  # Default: every day
+        self._interval_days = 1
+
+    def _set_status(self, status: str, update_last_scrape: bool = False):
+        """Helper to update ScrapeLog status safely."""
+        db = SessionLocal()
+        try:
+            log = db.query(ScrapeLog).first()
+            if not log:
+                log = ScrapeLog(status=status)
+                db.add(log)
+            else:
+                log.status = status
+            if update_last_scrape:
+                log.last_scrape_at = datetime.now()
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to set status to '{status}': {e}")
+            db.rollback()
+        finally:
+            db.close()
 
     def scrape_job(self):
-        """Job to execute scraping (active listings + sold detection)"""
-        print(f"Automated scrape triggered at {datetime.now()}")
+        """Job to execute scraping: active listings + sold detection (both avl=s and comparison)"""
+        now_sgt = datetime.now(SGT)
+        logger.info(f"===== SCHEDULED SCRAPE STARTED at {now_sgt.strftime('%Y-%m-%d %H:%M:%S %Z')} =====")
+
+        self._set_status("Scraping")
+
         try:
-            results = self.scraper.scrape_vehicle_listings()
+            scraper = SGCarMartJSScraper(headless=True)
+
+            # Step 1: Scrape active listings
+            logger.info("[SCHEDULER] Step 1/3: Scraping active listings...")
+            results = scraper.scrape_vehicle_listings()
+            active_count = len(results) if results else 0
+            logger.info(f"[SCHEDULER] Active listings: {active_count} vehicles found")
+
+            # Step 2: Detect sold by comparison (previous vs current)
+            comparison_sold = 0
             if results:
-                # Detect sold by comparing previous vs current
-                sold_count = detect_and_log_sold()
-                print(f"Sold detection: {sold_count} vehicles sold")
-            db = SessionLocal()
-            try:
-                log = db.query(ScrapeLog).first()
-                if log:
-                    log.status = "Ready"
-                    log.last_scrape_at = datetime.now()
-                    db.commit()
-            finally:
-                db.close()
-            print(f"Automated scrape completed successfully at {datetime.now()}")
+                logger.info("[SCHEDULER] Step 2/3: Detecting sold vehicles (comparison method)...")
+                comparison_sold = detect_and_log_sold()
+                logger.info(f"[SCHEDULER] Comparison sold detection: {comparison_sold} vehicles")
+            else:
+                logger.warning("[SCHEDULER] Skipping comparison - no active listings scraped")
+
+            # Step 3: Scrape sold listings directly via avl=s
+            logger.info("[SCHEDULER] Step 3/3: Scraping sold listings (avl=s method)...")
+            sold_results = scraper.scrape_sold_listings()
+            avl_sold_count = len(sold_results) if sold_results else 0
+            logger.info(f"[SCHEDULER] Direct sold scrape (avl=s): {avl_sold_count} vehicles")
+
+            self._set_status("Ready", update_last_scrape=True)
+
+            logger.info(f"===== SCHEDULED SCRAPE COMPLETED =====")
+            logger.info(f"  Active: {active_count} | Comparison sold: {comparison_sold} | Direct sold: {avl_sold_count}")
+
         except Exception as e:
-            print(f"Error during automated scrape: {e}")
-            db = SessionLocal()
-            try:
-                log = db.query(ScrapeLog).first()
-                if log:
-                    log.status = "Ready"
-                    db.commit()
-            finally:
-                db.close()
-    
+            logger.error(f"[SCHEDULER] Scrape failed with error: {e}")
+            import traceback
+            traceback.print_exc()
+            self._set_status("Ready", update_last_scrape=True)
+
     def set_initial_schedule(self, hour: int, minute: int, interval_days: int = 1):
         """Set schedule before start (e.g. from DB)"""
         self._hour = hour
         self._minute = minute
         self._interval_days = interval_days
 
+    def _make_trigger(self, hour: int, minute: int, interval_days: int):
+        """Create CronTrigger with SGT timezone."""
+        if interval_days == 2:
+            return CronTrigger(day='*/2', hour=hour, minute=minute, timezone=SGT)
+        return CronTrigger(hour=hour, minute=minute, timezone=SGT)
+
     def start(self):
         """Start the scheduler"""
-        # Create cron trigger based on interval
-        if self._interval_days == 1:
-            # Every day
-            trigger = CronTrigger(hour=self._hour, minute=self._minute)
-            interval_text = "every day"
-        elif self._interval_days == 2:
-            # Every 2 days (even days of month: 2,4,6,8,...)
-            trigger = CronTrigger(day='*/2', hour=self._hour, minute=self._minute)
-            interval_text = "every 2 days"
-        else:
-            # Default to daily
-            trigger = CronTrigger(hour=self._hour, minute=self._minute)
-            interval_text = "every day"
+        trigger = self._make_trigger(self._hour, self._minute, self._interval_days)
+        interval_text = f"every {self._interval_days} day(s)"
 
         self.scheduler.add_job(
             self.scrape_job,
             trigger=trigger,
             id='daily_scrape',
             name='SGCarMart Scrape',
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=3600,  # Allow 1 hour grace for missed jobs
         )
         self.scheduler.start()
-        print(f"Scheduler started. Scraping {interval_text} at {self._hour:02d}:{self._minute:02d}")
+
+        next_run = self.get_next_run_time()
+        next_str = next_run.strftime('%Y-%m-%d %H:%M:%S %Z') if next_run else 'unknown'
+        logger.info(f"========================================")
+        logger.info(f"SCHEDULER STARTED")
+        logger.info(f"  Schedule: {interval_text} at {self._hour:02d}:{self._minute:02d} SGT")
+        logger.info(f"  Next run: {next_str}")
+        logger.info(f"  Timezone: Asia/Singapore (SGT)")
+        logger.info(f"========================================")
+
+        # Reset stuck "Scraping" status on startup
+        self._set_status("Ready")
 
     def update_schedule(self, hour: int, minute: int, interval_days: int = 1):
         """Update scrape time and interval"""
@@ -86,25 +131,17 @@ class ScraperScheduler:
         self._interval_days = interval_days
         job = self.scheduler.get_job('daily_scrape')
         if job:
-            # Create new trigger based on interval
-            if interval_days == 1:
-                trigger = CronTrigger(hour=hour, minute=minute)
-                interval_text = "every day"
-            elif interval_days == 2:
-                trigger = CronTrigger(day='*/2', hour=hour, minute=minute)
-                interval_text = "every 2 days"
-            else:
-                trigger = CronTrigger(hour=hour, minute=minute)
-                interval_text = "every day"
-
+            trigger = self._make_trigger(hour, minute, interval_days)
             job.reschedule(trigger=trigger)
-            print(f"Schedule updated to {interval_text} at {hour:02d}:{minute:02d}")
-    
+            next_run = self.get_next_run_time()
+            next_str = next_run.strftime('%Y-%m-%d %H:%M:%S %Z') if next_run else 'unknown'
+            logger.info(f"Schedule updated: every {interval_days} day(s) at {hour:02d}:{minute:02d} SGT | Next: {next_str}")
+
     def stop(self):
         """Stop the scheduler"""
         self.scheduler.shutdown()
-        print("Scheduler stopped")
-    
+        logger.info("Scheduler stopped")
+
     def get_next_run_time(self):
         """Get next scheduled run time"""
         job = self.scheduler.get_job('daily_scrape')

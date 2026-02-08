@@ -27,9 +27,13 @@ async function loadStatus() {
         if (s.schedule_display) {
             var [h, m] = s.schedule_display.split(':');
             document.getElementById('scheduleTime').value = (h.length === 1 ? '0' + h : h) + ':' + (m.length === 1 ? '0' + m : m);
-            document.getElementById('currentSchedule').textContent = 'Current: ' + formatTimeDisplay(parseInt(h), parseInt(m));
+            document.getElementById('currentSchedule').textContent = 'Current: ' + formatTimeDisplay(parseInt(h), parseInt(m)) + ' SGT';
         } else {
             document.getElementById('currentSchedule').textContent = 'Current: —';
+        }
+        var nextEl = document.getElementById('nextRunDisplay');
+        if (nextEl) {
+            nextEl.textContent = s.next_run_display || '—';
         }
     } catch (e) {
         console.error(e);
@@ -59,8 +63,9 @@ async function updateSchedule() {
         });
         if (!r.ok) throw new Error('Failed to update schedule');
         var d = await r.json();
-        document.getElementById('currentSchedule').textContent = 'Current: ' + formatTimeDisplay(d.schedule.hour, d.schedule.minute);
+        document.getElementById('currentSchedule').textContent = 'Current: ' + formatTimeDisplay(d.schedule.hour, d.schedule.minute) + ' SGT';
         showNotification('Schedule updated');
+        loadStatus();
     } catch (e) {
         showNotification('Error: ' + e.message, true);
     }

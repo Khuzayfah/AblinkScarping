@@ -547,10 +547,13 @@
                     <div class="last-scrape" id="lastScrape">Last scrape: —</div>
                 </div>
                 <div class="schedule-row mt-4">
-                    <label>Auto Scrape Daily at:</label>
+                    <label>Auto Scrape Daily at (SGT):</label>
                     <input type="time" id="scheduleTime" value="09:00">
                     <button class="btn btn-schedule" onclick="updateSchedule()">Update Schedule</button>
                     <span class="current-schedule" id="currentSchedule">Current: —</span>
+                </div>
+                <div class="mt-2" style="font-size:0.82rem;color:#6b7280;">
+                    <i class="bi bi-clock-history"></i> Next auto-scrape: <span id="nextRunDisplay" style="font-weight:600;color:#1a5f2a;">—</span>
                 </div>
             </div>
 

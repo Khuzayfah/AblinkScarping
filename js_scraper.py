@@ -7,7 +7,7 @@ import re
 import logging
 import math
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
 import config
@@ -702,11 +702,32 @@ class SGCarMartJSScraper:
         return processed
 
     def _save_sold_to_db(self, data: List[Dict[str, Any]]):
-        """Save sold listings to SoldLog table."""
+        """Save sold listings to SoldLog table, skipping duplicates by listing_url for today."""
         db = SessionLocal()
         try:
             now = datetime.now()
+            today_start = datetime.combine(now.date(), datetime.min.time())
+            today_end = today_start + timedelta(days=1)
+
+            # Get existing sold URLs for today to avoid duplicates
+            existing_urls = set()
+            existing = db.query(SoldLog.listing_url).filter(
+                SoldLog.sold_date >= today_start,
+                SoldLog.sold_date < today_end,
+            ).all()
+            for row in existing:
+                if row[0]:
+                    existing_urls.add(row[0].split('?')[0])
+
+            saved = 0
+            skipped = 0
             for item in data:
+                url = item.get('listing_url', '')
+                clean_url = url.split('?')[0] if url else ''
+                if clean_url and clean_url in existing_urls:
+                    skipped += 1
+                    continue
+
                 dep = item.get('depreciation', '') or '–'
                 if not dep and item.get('price') is not None:
                     dep = f"${item['price']:,.0f}"
@@ -719,8 +740,11 @@ class SGCarMartJSScraper:
                     price=item.get('price'),
                     listing_url=item.get('listing_url', ''),
                 ))
+                if clean_url:
+                    existing_urls.add(clean_url)
+                saved += 1
             db.commit()
-            logger.info(f"[OK] Saved {len(data)} sold listings to SoldLog")
+            logger.info(f"[OK] Saved {saved} sold listings to SoldLog (skipped {skipped} duplicates)")
         except Exception as e:
             logger.error(f"Error saving sold data: {e}")
             db.rollback()

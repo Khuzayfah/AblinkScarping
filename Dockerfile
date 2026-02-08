@@ -35,6 +35,9 @@ RUN apt-get update && apt-get install -y \
     libx11-6 \
     libxcb1 \
     libxext6 \
+    tzdata \
+    && ln -snf /usr/share/zoneinfo/Asia/Singapore /etc/localtime \
+    && echo "Asia/Singapore" > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -60,6 +63,7 @@ EXPOSE 3000
 ENV DATABASE_URL=sqlite:///./data/scraping.db
 ENV PYTHONUNBUFFERED=1
 ENV PORT=3000
+ENV TZ=Asia/Singapore
 
 # Health check - using curl instead of requests for reliability
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \

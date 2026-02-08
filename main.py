@@ -53,23 +53,22 @@ def _get_schedule_from_db(db: Session) -> tuple:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events"""
-    # Startup: load schedule from DB if set
     from database import SessionLocal
     try:
         db = SessionLocal()
         try:
             hour, minute, interval_days = _get_schedule_from_db(db)
             scheduler.set_initial_schedule(hour, minute, interval_days)
+            logger.info(f"Loaded schedule from DB: {hour:02d}:{minute:02d} SGT, every {interval_days} day(s)")
         finally:
             db.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Could not load schedule from DB, using defaults: {e}")
     scheduler.start()
-    print("Application started. Scheduler is running.")
+    logger.info("Application started. Scheduler is running.")
     yield
-    # Shutdown
     scheduler.stop()
-    print("Application shutting down.")
+    logger.info("Application shutting down.")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -109,17 +108,28 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
         from database import SessionLocal
         scraper = SGCarMartJSScraper(headless=True)
         try:
-            logger.info("Background scrape task started")
+            # Step 1: Scrape active listings
+            logger.info("[MANUAL] Step 1/3: Scraping active listings...")
             results = scraper.scrape_vehicle_listings()
-            logger.info(f"Active listings: {len(results) if results else 0} vehicles found")
+            active_count = len(results) if results else 0
+            logger.info(f"[MANUAL] Active listings: {active_count} vehicles found")
 
+            # Step 2: Detect sold by comparison
+            comparison_sold = 0
             if results:
-                # Detect sold vehicles by comparing previous vs current active listings
-                logger.info("Detecting sold vehicles (comparing with previous scrape)...")
-                sold_count = detect_and_log_sold()
-                logger.info(f"Sold detection complete: {sold_count} vehicles sold")
+                logger.info("[MANUAL] Step 2/3: Detecting sold vehicles (comparison)...")
+                comparison_sold = detect_and_log_sold()
+                logger.info(f"[MANUAL] Comparison sold: {comparison_sold} vehicles")
             else:
-                logger.warning("Scrape returned 0 results - skipping sold detection")
+                logger.warning("[MANUAL] Skipping comparison - no active listings scraped")
+
+            # Step 3: Scrape sold listings directly via avl=s
+            logger.info("[MANUAL] Step 3/3: Scraping sold listings (avl=s)...")
+            sold_results = scraper.scrape_sold_listings()
+            avl_sold = len(sold_results) if sold_results else 0
+            logger.info(f"[MANUAL] Direct sold (avl=s): {avl_sold} vehicles")
+
+            logger.info(f"[MANUAL] Complete: Active={active_count} | Comparison sold={comparison_sold} | Direct sold={avl_sold}")
         except Exception as e:
             logger.error(f"Scrape failed with error: {e}")
             import traceback
@@ -150,12 +160,17 @@ async def get_status(db: Session = Depends(get_db)):
     log = _ensure_scrape_log(db)
     hour, minute, interval_days = _get_schedule_from_db(db)
     next_run = scheduler.get_next_run_time()
+    next_run_display = None
+    if next_run:
+        next_run_display = next_run.strftime("%Y-%m-%d %H:%M SGT")
     return {
         "status": log.status,
         "last_scrape_at": log.last_scrape_at.strftime("%Y-%m-%d %H:%M:%S") if log.last_scrape_at else None,
         "schedule": {"hour": hour, "minute": minute, "interval_days": interval_days},
-        "schedule_display": f"{hour:02d}:{minute:02d} (every {interval_days} day{'s' if interval_days > 1 else ''})",
-        "next_scheduled_scrape": next_run.isoformat() if next_run else None
+        "schedule_display": f"{hour:02d}:{minute:02d} SGT (every {interval_days} day{'s' if interval_days > 1 else ''})",
+        "next_scheduled_scrape": next_run.isoformat() if next_run else None,
+        "next_run_display": next_run_display,
+        "timezone": "Asia/Singapore (SGT)"
     }
 
 
