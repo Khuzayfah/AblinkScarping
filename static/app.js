@@ -256,13 +256,21 @@ async function triggerScrape() {
                 loadStatus();
                 loadDailyReport();
                 loadHistory();
-                showNotification('Scraping completed.');
+                loadSgcarmartSold();
+                loadSgcarmartSoldCount();
+                loadActiveLogCount();
+                showNotification('Scraping completed. All data refreshed.');
             }
         }, 3000);
         setTimeout(function () {
             clearInterval(check);
             btn.disabled = false;
             loadStatus();
+            loadDailyReport();
+            loadHistory();
+            loadSgcarmartSold();
+            loadSgcarmartSoldCount();
+            loadActiveLogCount();
         }, 300000);
     } catch (e) {
         showNotification('Error: ' + e.message, true);
@@ -344,7 +352,7 @@ function buildSoldLogTable(list) {
     var html = '<table class="table data-table sold-log-table">';
     html += '<thead><tr>';
     html += '<th style="width:40px">No</th>';
-    html += '<th>Date Sold</th>';
+    html += '<th>Date Scraped</th>';
     html += '<th class="vehicle-col">Name &amp; Model</th>';
     html += '<th>Year</th>';
     html += '<th>Depreciation</th>';
