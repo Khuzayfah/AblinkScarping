@@ -702,7 +702,8 @@ class SGCarMartJSScraper:
         return processed
 
     def _save_sold_to_db(self, data: List[Dict[str, Any]]):
-        """Save sold listings to SgcarmartSold table (accumulated), skipping duplicates by URL."""
+        """Save sold listings to SgcarmartSold table (accumulated), skipping duplicates by URL.
+        Cross-references depreciation from vehicle_listings when SGCarMart returns 0."""
         db = SessionLocal()
         try:
             now = datetime.now()
@@ -714,8 +715,25 @@ class SGCarMartJSScraper:
                 if row[0]:
                     existing_urls.add(row[0].split('?')[0])
 
+            # Build depreciation lookup from vehicle_listings (active listings have real depreciation)
+            active_dep_map = {}
+            active_rows = db.query(
+                VehicleListing.listing_url,
+                VehicleListing.depreciation
+            ).filter(
+                VehicleListing.depreciation.isnot(None),
+                VehicleListing.depreciation != '',
+                VehicleListing.depreciation != '–'
+            ).all()
+            for row in active_rows:
+                if row[0]:
+                    clean = row[0].split('?')[0]
+                    active_dep_map[clean] = row[1]
+            logger.info(f"  Built active depreciation map: {len(active_dep_map)} entries")
+
             saved = 0
             skipped = 0
+            dep_from_active = 0
             for item in data:
                 url = item.get('listing_url', '')
                 clean_url = url.split('?')[0] if url else ''
@@ -724,8 +742,13 @@ class SGCarMartJSScraper:
                     continue
 
                 dep = item.get('depreciation', '') or '–'
-                if not dep and item.get('price') is not None:
-                    dep = f"${item['price']:,.0f}"
+
+                # Cross-reference: if depreciation missing, get from active listings
+                if (not dep or dep == '–') and clean_url and clean_url in active_dep_map:
+                    dep = active_dep_map[clean_url]
+                    dep_from_active += 1
+                    logger.info(f"    [XREF] Got depreciation {dep} from active listings for {item.get('make_model', '')}")
+
                 db.add(SgcarmartSold(
                     scrape_date=now,
                     make_model=item.get('make_model', ''),
@@ -739,7 +762,7 @@ class SGCarMartJSScraper:
                     existing_urls.add(clean_url)
                 saved += 1
             db.commit()
-            logger.info(f"[OK] Saved {saved} sold to sgcarmart_sold (skipped {skipped} existing)")
+            logger.info(f"[OK] Saved {saved} sold to sgcarmart_sold (skipped {skipped} existing, {dep_from_active} dep from active)")
         except Exception as e:
             logger.error(f"Error saving sold data: {e}")
             db.rollback()

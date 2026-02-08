@@ -352,8 +352,7 @@ function buildSoldLogTable(list) {
     var html = '<table class="table data-table sold-log-table">';
     html += '<thead><tr>';
     html += '<th style="width:40px">No</th>';
-    html += '<th>Date Scraped</th>';
-    html += '<th>Date Sold</th>';
+    html += '<th>Date Found Sold</th>';
     html += '<th class="vehicle-col">Name &amp; Model</th>';
     html += '<th>Year</th>';
     html += '<th>Depreciation</th>';
@@ -363,7 +362,6 @@ function buildSoldLogTable(list) {
         html += '<tr>';
         html += '<td class="no-col">' + (idx + 1) + '</td>';
         html += '<td>' + formatSoldDate(entry.scrape_date) + '</td>';
-        html += '<td>' + formatSoldDate(entry.date_sold || entry.scrape_date) + '</td>';
         html += '<td class="vehicle-col">' + (entry.make_model || '–') + '</td>';
         html += '<td>' + (entry.year_registered != null ? entry.year_registered : '–') + '</td>';
         html += '<td class="depre-cell">' + (entry.depreciation || '–') + '</td>';

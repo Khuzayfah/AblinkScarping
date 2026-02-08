@@ -463,13 +463,12 @@ async def export_sgcarmart_sold_csv(db: Session = Depends(get_db)):
     rows = db.query(SgcarmartSold).order_by(SgcarmartSold.id.desc()).all()
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(['No', 'Date Scraped', 'Date Sold', 'Name & Model', 'Year', 'Depreciation', 'Dealer'])
+    writer.writerow(['No', 'Date Found Sold', 'Name & Model', 'Year', 'Depreciation', 'Dealer'])
     for idx, r in enumerate(rows, 1):
         scrape_dt = r.scrape_date.strftime("%Y-%m-%d") if r.scrape_date else ''
         writer.writerow([
             idx,
             scrape_dt,
-            scrape_dt,  # Date Sold = scrape_date for avl=s items
             r.make_model or '',
             r.year_registered if r.year_registered is not None else '',
             r.depreciation or '',
