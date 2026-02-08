@@ -44,7 +44,7 @@ class ScraperScheduler:
             db.close()
 
     def scrape_job(self):
-        """Job to execute scraping: active listings + sold detection (both avl=s and comparison)"""
+        """Job to execute scraping: active listings + sold detection by comparison"""
         now_sgt = datetime.now(SGT)
         logger.info(f"===== SCHEDULED SCRAPE STARTED at {now_sgt.strftime('%Y-%m-%d %H:%M:%S %Z')} =====")
 
@@ -54,7 +54,7 @@ class ScraperScheduler:
             scraper = SGCarMartJSScraper(headless=True)
 
             # Step 1: Scrape active listings
-            logger.info("[SCHEDULER] Step 1/3: Scraping active listings...")
+            logger.info("[SCHEDULER] Step 1/2: Scraping active listings...")
             results = scraper.scrape_vehicle_listings()
             active_count = len(results) if results else 0
             logger.info(f"[SCHEDULER] Active listings: {active_count} vehicles found")
@@ -62,22 +62,16 @@ class ScraperScheduler:
             # Step 2: Detect sold by comparison (previous vs current)
             comparison_sold = 0
             if results:
-                logger.info("[SCHEDULER] Step 2/3: Detecting sold vehicles (comparison method)...")
+                logger.info("[SCHEDULER] Step 2/2: Detecting sold vehicles (comparison method)...")
                 comparison_sold = detect_and_log_sold()
-                logger.info(f"[SCHEDULER] Comparison sold detection: {comparison_sold} vehicles")
+                logger.info(f"[SCHEDULER] Sold detection: {comparison_sold} vehicles disappeared since last scrape")
             else:
-                logger.warning("[SCHEDULER] Skipping comparison - no active listings scraped")
-
-            # Step 3: Scrape sold listings directly via avl=s
-            logger.info("[SCHEDULER] Step 3/3: Scraping sold listings (avl=s method)...")
-            sold_results = scraper.scrape_sold_listings()
-            avl_sold_count = len(sold_results) if sold_results else 0
-            logger.info(f"[SCHEDULER] Direct sold scrape (avl=s): {avl_sold_count} vehicles")
+                logger.warning("[SCHEDULER] Skipping sold detection - no active listings scraped")
 
             self._set_status("Ready", update_last_scrape=True)
 
             logger.info(f"===== SCHEDULED SCRAPE COMPLETED =====")
-            logger.info(f"  Active: {active_count} | Comparison sold: {comparison_sold} | Direct sold: {avl_sold_count}")
+            logger.info(f"  Active: {active_count} | Sold today: {comparison_sold}")
 
         except Exception as e:
             logger.error(f"[SCHEDULER] Scrape failed with error: {e}")

@@ -109,27 +109,21 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
         scraper = SGCarMartJSScraper(headless=True)
         try:
             # Step 1: Scrape active listings
-            logger.info("[MANUAL] Step 1/3: Scraping active listings...")
+            logger.info("[MANUAL] Step 1/2: Scraping active listings...")
             results = scraper.scrape_vehicle_listings()
             active_count = len(results) if results else 0
             logger.info(f"[MANUAL] Active listings: {active_count} vehicles found")
 
-            # Step 2: Detect sold by comparison
+            # Step 2: Detect sold by comparison (previous vs current)
             comparison_sold = 0
             if results:
-                logger.info("[MANUAL] Step 2/3: Detecting sold vehicles (comparison)...")
+                logger.info("[MANUAL] Step 2/2: Detecting sold vehicles (comparison)...")
                 comparison_sold = detect_and_log_sold()
-                logger.info(f"[MANUAL] Comparison sold: {comparison_sold} vehicles")
+                logger.info(f"[MANUAL] Sold detection: {comparison_sold} vehicles disappeared since last scrape")
             else:
-                logger.warning("[MANUAL] Skipping comparison - no active listings scraped")
+                logger.warning("[MANUAL] Skipping sold detection - no active listings scraped")
 
-            # Step 3: Scrape sold listings directly via avl=s
-            logger.info("[MANUAL] Step 3/3: Scraping sold listings (avl=s)...")
-            sold_results = scraper.scrape_sold_listings()
-            avl_sold = len(sold_results) if sold_results else 0
-            logger.info(f"[MANUAL] Direct sold (avl=s): {avl_sold} vehicles")
-
-            logger.info(f"[MANUAL] Complete: Active={active_count} | Comparison sold={comparison_sold} | Direct sold={avl_sold}")
+            logger.info(f"[MANUAL] Complete: Active={active_count} | Sold today={comparison_sold}")
         except Exception as e:
             logger.error(f"Scrape failed with error: {e}")
             import traceback
