@@ -354,7 +354,8 @@ class SGCarMartJSScraper:
         return all_listings
 
     def _fetch_detail_page_dealer(self, session, url: str, dealer_map: Dict[int, str]) -> Tuple[str, str]:
-        """Fetch detail page to get dealer name and depreciation if missing."""
+        """Fetch detail page to get dealer name and depreciation if missing.
+        Handles SGCarMart sold pages where depreciation is 'N.A.' or 0."""
         try:
             text = self._fetch_page(session, url, "detail page")
             if not text:
@@ -369,13 +370,22 @@ class SGCarMartJSScraper:
                 if m:
                     dealer = m.group(1).strip()
 
-            # Extract depreciation - try HTML content first
+            # Extract depreciation - multiple strategies
             dep = ''
+
+            # Strategy 1: HTML $X,XXX/yr pattern
             dep_match = re.search(r'\$\s*([\d,]+)\s*/\s*yr', text)
             if dep_match:
                 dep = '$' + dep_match.group(1) + '/yr'
 
-            # Also try RSC payload for depreciation if not found in HTML
+            # Strategy 2: RSC string format "$$X,XXX /yr" (SGCarMart uses double-dollar in RSC)
+            if not dep:
+                rsc_dep_str = re.search(r'\$\$\s*([\d,]+)\s*/\s*yr', text)
+                if rsc_dep_str:
+                    dep = '$' + rsc_dep_str.group(1) + '/yr'
+                    logger.info(f"    [DEP] Found RSC string depreciation: {dep}")
+
+            # Strategy 3: RSC numeric depreciation field (works for active listings)
             if not dep:
                 rsc_dep = _extract_rsc_num(text, 'depreciation', 0, len(text))
                 if rsc_dep and rsc_dep > 0:
@@ -703,7 +713,13 @@ class SGCarMartJSScraper:
 
     def _save_sold_to_db(self, data: List[Dict[str, Any]]):
         """Save sold listings to SgcarmartSold table (accumulated), skipping duplicates by URL.
-        Cross-references depreciation from vehicle_listings when SGCarMart returns 0."""
+
+        Multi-layer depreciation lookup (SGCarMart always returns 0 for sold items):
+          Layer 1: From scraper detail page (already in item data)
+          Layer 2: From vehicle_listings table (active listings have real depreciation)
+          Layer 3: From sold_log table (comparison-based sold detection keeps original dep)
+          Layer 4: From existing sgcarmart_sold entries with same make_model + year
+        """
         db = SessionLocal()
         try:
             now = datetime.now()
@@ -715,8 +731,10 @@ class SGCarMartJSScraper:
                 if row[0]:
                     existing_urls.add(row[0].split('?')[0])
 
-            # Build depreciation lookup from vehicle_listings (active listings have real depreciation)
-            active_dep_map = {}
+            # === Build depreciation lookup maps ===
+
+            # Layer 2: vehicle_listings (active listings scraped previously)
+            active_dep_map = {}  # url -> depreciation
             active_rows = db.query(
                 VehicleListing.listing_url,
                 VehicleListing.depreciation
@@ -729,11 +747,44 @@ class SGCarMartJSScraper:
                 if row[0]:
                     clean = row[0].split('?')[0]
                     active_dep_map[clean] = row[1]
-            logger.info(f"  Built active depreciation map: {len(active_dep_map)} entries")
+
+            # Layer 3: sold_log (comparison method keeps original depreciation)
+            soldlog_dep_map = {}  # url -> depreciation
+            soldlog_rows = db.query(
+                SoldLog.listing_url,
+                SoldLog.depreciation
+            ).filter(
+                SoldLog.depreciation.isnot(None),
+                SoldLog.depreciation != '',
+                SoldLog.depreciation != '–'
+            ).all()
+            for row in soldlog_rows:
+                if row[0]:
+                    clean = row[0].split('?')[0]
+                    soldlog_dep_map[clean] = row[1]
+
+            # Layer 4: existing sgcarmart_sold (same model+year might have dep from earlier scrape)
+            model_dep_map = {}  # (make_model_upper, year) -> depreciation
+            prev_sold_rows = db.query(
+                SgcarmartSold.make_model,
+                SgcarmartSold.year_registered,
+                SgcarmartSold.depreciation
+            ).filter(
+                SgcarmartSold.depreciation.isnot(None),
+                SgcarmartSold.depreciation != '',
+                SgcarmartSold.depreciation != '–'
+            ).all()
+            for row in prev_sold_rows:
+                if row[0] and row[2]:
+                    key = (row[0].upper().strip(), row[1])
+                    model_dep_map[key] = row[2]
+
+            logger.info(f"  Depreciation maps: active={len(active_dep_map)}, sold_log={len(soldlog_dep_map)}, model_match={len(model_dep_map)}")
 
             saved = 0
             skipped = 0
-            dep_from_active = 0
+            dep_found = {'scraper': 0, 'active': 0, 'soldlog': 0, 'model': 0, 'missing': 0}
+
             for item in data:
                 url = item.get('listing_url', '')
                 clean_url = url.split('?')[0] if url else ''
@@ -741,13 +792,42 @@ class SGCarMartJSScraper:
                     skipped += 1
                     continue
 
-                dep = item.get('depreciation', '') or '–'
+                dep = item.get('depreciation', '') or ''
+                source = ''
 
-                # Cross-reference: if depreciation missing, get from active listings
-                if (not dep or dep == '–') and clean_url and clean_url in active_dep_map:
+                # Layer 1: Already have from scraper/detail page?
+                if dep and dep != '–':
+                    source = 'scraper'
+                    dep_found['scraper'] += 1
+
+                # Layer 2: Cross-reference from active listings (exact URL match)
+                if not source and clean_url and clean_url in active_dep_map:
                     dep = active_dep_map[clean_url]
-                    dep_from_active += 1
-                    logger.info(f"    [XREF] Got depreciation {dep} from active listings for {item.get('make_model', '')}")
+                    source = 'active'
+                    dep_found['active'] += 1
+
+                # Layer 3: Cross-reference from sold_log (exact URL match)
+                if not source and clean_url and clean_url in soldlog_dep_map:
+                    dep = soldlog_dep_map[clean_url]
+                    source = 'soldlog'
+                    dep_found['soldlog'] += 1
+
+                # Layer 4: Match by model name + year from previously saved sold items
+                if not source:
+                    make = (item.get('make_model', '') or '').upper().strip()
+                    year = item.get('registered_year')
+                    key = (make, year)
+                    if key in model_dep_map:
+                        dep = model_dep_map[key]
+                        source = 'model'
+                        dep_found['model'] += 1
+
+                if not dep or dep == '–':
+                    dep = '–'
+                    dep_found['missing'] += 1
+
+                if source:
+                    logger.info(f"    [DEP-{source.upper()}] {item.get('make_model','')} -> {dep}")
 
                 db.add(SgcarmartSold(
                     scrape_date=now,
@@ -761,13 +841,99 @@ class SGCarMartJSScraper:
                 if clean_url:
                     existing_urls.add(clean_url)
                 saved += 1
+
             db.commit()
-            logger.info(f"[OK] Saved {saved} sold to sgcarmart_sold (skipped {skipped} existing, {dep_from_active} dep from active)")
+            logger.info(f"[OK] Saved {saved} sold (skipped {skipped})")
+            logger.info(f"  Depreciation sources: {dep_found}")
+
+            # Backfill: update old sold entries that still have '–' depreciation
+            self._backfill_sold_depreciation(db)
+
         except Exception as e:
             logger.error(f"Error saving sold data: {e}")
             db.rollback()
         finally:
             db.close()
+
+    @staticmethod
+    def _backfill_sold_depreciation(db):
+        """Backfill depreciation for existing sgcarmart_sold entries that have '–'.
+        Uses vehicle_listings and sold_log as sources."""
+        try:
+            missing = db.query(SgcarmartSold).filter(
+                (SgcarmartSold.depreciation == '–') |
+                (SgcarmartSold.depreciation == '') |
+                (SgcarmartSold.depreciation.is_(None))
+            ).all()
+
+            if not missing:
+                logger.info("  [BACKFILL] No sold entries need depreciation backfill")
+                return
+
+            logger.info(f"  [BACKFILL] {len(missing)} sold entries missing depreciation, trying to fill...")
+
+            # Build lookup from vehicle_listings
+            active_map = {}
+            for row in db.query(VehicleListing.listing_url, VehicleListing.depreciation).filter(
+                VehicleListing.depreciation.isnot(None),
+                VehicleListing.depreciation != '',
+                VehicleListing.depreciation != '–'
+            ).all():
+                if row[0]:
+                    active_map[row[0].split('?')[0]] = row[1]
+
+            # Build lookup from sold_log
+            soldlog_map = {}
+            for row in db.query(SoldLog.listing_url, SoldLog.depreciation).filter(
+                SoldLog.depreciation.isnot(None),
+                SoldLog.depreciation != '',
+                SoldLog.depreciation != '–'
+            ).all():
+                if row[0]:
+                    soldlog_map[row[0].split('?')[0]] = row[1]
+
+            # Build model+year lookup from existing sold entries that DO have depreciation
+            model_map = {}
+            for row in db.query(SgcarmartSold.make_model, SgcarmartSold.year_registered, SgcarmartSold.depreciation).filter(
+                SgcarmartSold.depreciation.isnot(None),
+                SgcarmartSold.depreciation != '',
+                SgcarmartSold.depreciation != '–'
+            ).all():
+                if row[0] and row[2]:
+                    model_map[(row[0].upper().strip(), row[1])] = row[2]
+
+            updated = 0
+            for entry in missing:
+                clean_url = (entry.listing_url or '').split('?')[0]
+                dep = None
+                src = ''
+
+                # Try URL match from active
+                if clean_url and clean_url in active_map:
+                    dep = active_map[clean_url]
+                    src = 'active'
+                # Try URL match from sold_log
+                elif clean_url and clean_url in soldlog_map:
+                    dep = soldlog_map[clean_url]
+                    src = 'soldlog'
+                # Try model+year match
+                else:
+                    key = ((entry.make_model or '').upper().strip(), entry.year_registered)
+                    if key in model_map:
+                        dep = model_map[key]
+                        src = 'model'
+
+                if dep:
+                    entry.depreciation = dep
+                    updated += 1
+                    logger.info(f"    [BACKFILL-{src.upper()}] {entry.make_model} -> {dep}")
+
+            if updated > 0:
+                db.commit()
+            logger.info(f"  [BACKFILL] Updated {updated} of {len(missing)} entries")
+
+        except Exception as e:
+            logger.error(f"  [BACKFILL] Error: {e}")
 
     def _fallback_playwright_scrape(self) -> List[Dict[str, Any]]:
         """Fallback to Playwright-based scraping if curl_cffi fails."""
