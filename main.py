@@ -455,6 +455,37 @@ async def get_sgcarmart_sold(
     }
 
 
+@app.get("/api/export/sgcarmart-sold-csv")
+async def export_sgcarmart_sold_csv(db: Session = Depends(get_db)):
+    """Export all SGCarMart sold listings (avl=s) to CSV"""
+    import csv
+    from io import StringIO
+    rows = db.query(SgcarmartSold).order_by(SgcarmartSold.id.desc()).all()
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['No', 'Date Scraped', 'Date Sold', 'Name & Model', 'Year', 'Depreciation', 'Dealer'])
+    for idx, r in enumerate(rows, 1):
+        scrape_dt = r.scrape_date.strftime("%Y-%m-%d") if r.scrape_date else ''
+        writer.writerow([
+            idx,
+            scrape_dt,
+            scrape_dt,  # Date Sold = scrape_date for avl=s items
+            r.make_model or '',
+            r.year_registered if r.year_registered is not None else '',
+            r.depreciation or '',
+            r.dealer_name or '',
+        ])
+    csv_bytes = output.getvalue().encode('utf-8')
+    from io import BytesIO
+    bio = BytesIO(csv_bytes)
+    filename = f"sgcarmart_sold_all_{datetime.now().strftime('%Y%m%d')}.csv"
+    return StreamingResponse(
+        bio,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 def _get_daily_table_for_date(target_date, db: Session) -> Dict[str, Any]:
     """Get daily sold table for a given date."""
     next_date = target_date + timedelta(days=1)
