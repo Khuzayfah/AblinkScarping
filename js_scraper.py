@@ -10,6 +10,8 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
+from sqlalchemy import and_
+
 import config
 from database import SessionLocal, VehicleListing, SoldLog, SgcarmartSold, ListingCache
 
@@ -20,23 +22,33 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 BQ = '\\"'
 
 # Search keywords for commercial vehicles
-SEARCH_KEYWORDS = [
-    "Toyota Hiace",
+# Truck/lorry keywords (no special filter needed)
+SEARCH_KEYWORDS_TRUCK = [
     "Hino Dutro",
     "Hino XZU",
     "Toyota Dyna",
-    "Nissan NV350",
-    "Nissan NV200",
     "Nissan Cabstar",
     "Isuzu NPR",
     "Isuzu NMR",
     "Isuzu NNR",
     "Isuzu NHR",
-    "Honda N-VAN",
+    "Isuzu NJR",
     "Mitsubishi Fuso",
     "Mitsubishi FEA",
+    "Mitsubishi FEB",
     "Kia K2500",
 ]
+
+# Van keywords - search with "Goods Van" filter to get commercial goods vans only
+SEARCH_KEYWORDS_VAN = [
+    "Toyota Hiace Goods Van",
+    "Nissan NV350 Goods Van",
+    "Nissan NV200 Goods Van",
+    "Honda N-VAN Goods Van",
+]
+
+# Combined list for backward compatibility
+SEARCH_KEYWORDS = SEARCH_KEYWORDS_TRUCK + SEARCH_KEYWORDS_VAN
 
 
 def extract_year(reg_date: Optional[str]) -> Optional[int]:
@@ -265,7 +277,7 @@ class SGCarMartJSScraper:
             ('HINO', ['DUTRO', 'XZU']),
             ('NISSAN', ['CABSTAR', 'NV350', 'NV200']),
             ('ISUZU', ['NPR', 'NMR', 'NNR', 'NHR', 'NJR']),
-            ('MITSUBISHI', ['FEA']),
+            ('MITSUBISHI', ['FEA', 'FEB']),
             ('KIA', ['2500', 'K2500']),
             ('HONDA', ['N-VAN']),
         ]
@@ -1148,12 +1160,28 @@ class SGCarMartJSScraper:
         return scraped_data
 
     def _save_to_db(self, data: List[Dict[str, Any]]):
-        """Save scraped data to database and update listing cache."""
+        """Save scraped data to database and update listing cache.
+        Deletes existing listings for today before inserting to prevent duplicates
+        when the scraper runs multiple times in one day.
+        """
         db = SessionLocal()
         try:
+            # Remove existing listings for today to prevent duplicates
+            today = datetime.now().date()
+            tomorrow = today + timedelta(days=1)
+            deleted = db.query(VehicleListing).filter(
+                and_(
+                    VehicleListing.scrape_date >= today,
+                    VehicleListing.scrape_date < tomorrow
+                )
+            ).delete(synchronize_session=False)
+            if deleted:
+                logger.info(f"[DEDUP] Cleared {deleted} existing listings for {today} before re-saving")
+
+            now = datetime.now()
             for item in data:
                 db.add(VehicleListing(
-                    scrape_date=datetime.now(),
+                    scrape_date=now,
                     make_model=item.get("make_model", ""),
                     registered_year=item.get("registered_year"),
                     depreciation=item.get("depreciation", ""),

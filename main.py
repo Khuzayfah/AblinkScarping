@@ -269,27 +269,30 @@ def _normalize_model(name: str) -> Optional[str]:
     # "DX" / "GL" / "HIGH ROOF" suffix removal for matching
     n_clean = re.sub(r'\s+(DX|GL|HIGH ROOF).*$', '', n_no_commuter).strip()
 
-    # Also create version without transmission suffix (A/M) for flexible matching
-    # e.g., "NISSAN NV350 2.5A" should match "NISSAN NV350 2.5M"
+    # Two-pass matching: first try exact (with A/M), then try transmission-agnostic
     n_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', n_clean)
 
+    # PASS 1: Exact match (preserves A/M distinction like 3.0A vs 3.0M)
     for v in config.TARGET_VEHICLES:
         vu = v.upper()
-        vu_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', vu)
-        # Check various cleaned versions
         if vu in n or n in vu:
             return v
         if vu in n_no_commuter or n_no_commuter in vu:
             return v
         if vu in n_clean or n_clean in vu:
             return v
-        # Match ignoring A/M transmission difference
+        # Special: match "ISUZU NHR87A" to "ISUZU NHR"
+        if "ISUZU" in n and vu == "ISUZU NHR" and "NHR" in n:
+            return v
+        if "ISUZU" in n and vu == "ISUZU NJR" and "NJR" in n:
+            return v
+
+    # PASS 2: Transmission-agnostic fallback (A/M stripped)
+    # Only if no exact match found above
+    for v in config.TARGET_VEHICLES:
+        vu = v.upper()
+        vu_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', vu)
         if vu_no_trans and (vu_no_trans in n_no_trans or n_no_trans in vu_no_trans):
-            return v
-        # Special: match "ISUZU NHR87A" to "ISUZU NHR / NJR"
-        if "ISUZU" in n and ("NHR" in vu and "NHR" in n):
-            return v
-        if "ISUZU" in n and ("NJR" in vu and "NJR" in n):
             return v
     return None
 
@@ -309,6 +312,19 @@ def _build_daily_table(sold_rows: list, report_date: str) -> Dict[str, Any]:
         price = getattr(row, 'price', None)
         raw_name = row.make_model or ''
         agg[model]["items"].append((dealer, year, dep, price, raw_name))
+
+    # Merge combined models (e.g., "ISUZU NHR" + "ISUZU NJR" -> "ISUZU NHR / ISUZU NJR")
+    for cat_name, cat_models in config.VEHICLE_CATEGORIES.items():
+        for cm in cat_models:
+            if " / " in cm:
+                parts = [p.strip() for p in cm.split(" / ")]
+                combined_items = []
+                for part in parts:
+                    if part in agg:
+                        combined_items.extend(agg[part]["items"])
+                        del agg[part]
+                if combined_items:
+                    agg[cm] = {"items": combined_items}
 
     # Build grouped structure using VEHICLE_CATEGORIES from config
     groups = []
@@ -691,8 +707,18 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
 
     result = {}
     skipped_no_dep = 0
+    seen_urls = set()  # Deduplicate by listing_url to prevent inflated counts
 
     for row in rows:
+        # Deduplicate: skip if we already processed this listing URL
+        url_field = 'listing_url'
+        raw_url = getattr(row, url_field, None) or ''
+        clean_url = raw_url.split('?')[0] if raw_url else ''
+        if clean_url:
+            if clean_url in seen_urls:
+                continue
+            seen_urls.add(clean_url)
+
         model = _normalize_model(row.make_model)
         if not model:
             continue
@@ -726,6 +752,28 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
                 merged[model][key] = {'values': [], 'count': 0}
             merged[model][key]['values'].extend(data['values'])
             merged[model][key]['count'] += data['count']
+
+    # Merge combined models (e.g., "ISUZU NHR" + "ISUZU NJR" -> "ISUZU NHR / ISUZU NJR")
+    # Check VEHICLE_CATEGORIES for combined entries (containing " / ")
+    combine_map = {}  # individual model -> combined display name
+    for cat_name, cat_models in config.VEHICLE_CATEGORIES.items():
+        for cm in cat_models:
+            if " / " in cm:
+                parts = [p.strip() for p in cm.split(" / ")]
+                for part in parts:
+                    combine_map[part] = cm
+
+    # Merge data from individual models into combined model
+    for individual, combined in combine_map.items():
+        if individual in merged:
+            if combined not in merged:
+                merged[combined] = {}
+            for year, data in merged[individual].items():
+                if year not in merged[combined]:
+                    merged[combined][year] = {'values': [], 'count': 0}
+                merged[combined][year]['values'].extend(data['values'])
+                merged[combined][year]['count'] += data['count']
+            del merged[individual]
 
     final = {}
     for model, years_data in merged.items():
