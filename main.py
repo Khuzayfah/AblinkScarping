@@ -569,6 +569,41 @@ async def export_pdf(date: Optional[str] = None, db: Session = Depends(get_db)):
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
+@app.get("/api/export/depreciation-csv")
+async def export_depreciation_csv(source: str = "active", date: Optional[str] = None, db: Session = Depends(get_db)):
+    """Export depreciation table to CSV"""
+    dep_result = _get_depreciation_data(source, date, db)
+    cats = config.VEHICLE_CATEGORIES
+    date_str = dep_result.get("date", "")
+    csv_file = ExportService.export_depreciation_csv(dep_result["data"], cats, date_str)
+    filename = f"depreciation_{source}_{date_str}.csv"
+    return StreamingResponse(csv_file, media_type="text/csv",
+                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+@app.get("/api/export/depreciation-excel")
+async def export_depreciation_excel(source: str = "active", date: Optional[str] = None, db: Session = Depends(get_db)):
+    """Export depreciation table to Excel"""
+    dep_result = _get_depreciation_data(source, date, db)
+    cats = config.VEHICLE_CATEGORIES
+    date_str = dep_result.get("date", "")
+    excel_file = ExportService.export_depreciation_excel(dep_result["data"], cats, date_str)
+    filename = f"depreciation_{source}_{date_str}.xlsx"
+    return StreamingResponse(excel_file,
+                             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+@app.get("/api/export/depreciation-pdf")
+async def export_depreciation_pdf(source: str = "active", date: Optional[str] = None, db: Session = Depends(get_db)):
+    """Export depreciation table to PDF"""
+    dep_result = _get_depreciation_data(source, date, db)
+    cats = config.VEHICLE_CATEGORIES
+    date_str = dep_result.get("date", "")
+    title = f"{'Active' if source == 'active' else 'Sold'} Listings - Depreciation / Units"
+    pdf_file = ExportService.export_depreciation_pdf(dep_result["data"], cats, date_str, title)
+    filename = f"depreciation_{source}_{date_str}.pdf"
+    return StreamingResponse(pdf_file, media_type="application/pdf",
+                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+
 @app.get("/api/statistics")
 async def get_statistics(db: Session = Depends(get_db)):
     """Get overall statistics"""
@@ -605,16 +640,9 @@ async def get_statistics(db: Session = Depends(get_db)):
     }
 
 
-@app.get("/api/depreciation-by-year")
-async def get_depreciation_by_year(
-    date: Optional[str] = None,
-    source: str = "active",
-    db: Session = Depends(get_db)
-):
-    """Get depreciation aggregated by year and model
-    source: 'active' (VehicleListing - latest scrape)
-           'sold' (SgcarmartSold - all accumulated sold from SGCarMart)
-    Returns: {model_name: {year: {lowest, average, unit}}}
+def _get_depreciation_data(source: str, date: Optional[str], db):
+    """Shared logic for depreciation-by-year API and export endpoints.
+    Returns dict: {date, source, total_rows, data: {model: {year: {lowest, average, unit}}}}
     """
     import re
 
@@ -628,20 +656,13 @@ async def get_depreciation_by_year(
         target_date = datetime.now().date()
         next_date = target_date + timedelta(days=1)
 
-    # Query based on source
     if source == "sold":
-        # Use SgcarmartSold (accumulated sold from avl=s) for ALL-TIME sold data
-        # No date filter - we show all accumulated sold vehicles
         rows = db.query(SgcarmartSold).all()
         year_field = 'year_registered'
-
-        # Build listing_cache map for depreciation lookup (SGCarMart removes depreciation when sold)
         cache_map = {}
         for cache_entry in db.query(ListingCache).all():
             cache_map[cache_entry.make_model] = cache_entry.depreciation
-
-    else:  # active
-        # Use latest VehicleListing data (active scrapes from today or specified date)
+    else:
         rows = db.query(VehicleListing).filter(
             and_(
                 VehicleListing.scrape_date >= target_date,
@@ -651,21 +672,16 @@ async def get_depreciation_by_year(
         year_field = 'registered_year'
         cache_map = None
 
-    # Parse depreciation string to number
     def parse_depreciation(dep_str):
-        """Extract numeric value from depreciation string like '$16,890/yr' -> 16890"""
         if not dep_str:
             return None
-        # Skip dummy value
         if dep_str == "$5,001/yr":
             return None
-        # Remove $ and /yr, extract numbers
         match = re.search(r'[\d,]+', str(dep_str))
         if match:
             num_str = match.group(0).replace(',', '')
             try:
                 val = int(num_str)
-                # Filter out obviously invalid values
                 if val == 0 or val == 5001:
                     return None
                 return val
@@ -673,7 +689,6 @@ async def get_depreciation_by_year(
                 return None
         return None
 
-    # Aggregate by model and year
     result = {}
     skipped_no_dep = 0
 
@@ -681,37 +696,24 @@ async def get_depreciation_by_year(
         model = _normalize_model(row.make_model)
         if not model:
             continue
-
         year = getattr(row, year_field)
         if not year:
             continue
-
-        # Get depreciation: try row first, then fallback to cache for sold items
         dep_value = parse_depreciation(row.depreciation)
-
         if dep_value is None and source == "sold" and cache_map:
-            # Try to get from cache using exact make_model match
             cached_dep = cache_map.get(row.make_model)
             dep_value = parse_depreciation(cached_dep)
-
         if dep_value is None:
             skipped_no_dep += 1
             continue
-
         if model not in result:
             result[model] = {}
-
         if year not in result[model]:
-            result[model][year] = {
-                'values': [],
-                'count': 0
-            }
-
+            result[model][year] = {'values': [], 'count': 0}
         result[model][year]['values'].append(dep_value)
         result[model][year]['count'] += 1
 
-    # Merge years <= 2014 into "2014 & Older"
-    OLDEST_YEAR_LABEL = "2014"  # Will be displayed as "2014 & Older" on frontend
+    OLDEST_YEAR_LABEL = "2014"
     merged = {}
     for model, years_data in result.items():
         merged[model] = {}
@@ -725,7 +727,6 @@ async def get_depreciation_by_year(
             merged[model][key]['values'].extend(data['values'])
             merged[model][key]['count'] += data['count']
 
-    # Calculate lowest, average, unit for each year
     final = {}
     for model, years_data in merged.items():
         final[model] = {}
@@ -745,6 +746,16 @@ async def get_depreciation_by_year(
         "total_rows": len(rows),
         "data": final
     }
+
+
+@app.get("/api/depreciation-by-year")
+async def get_depreciation_by_year(
+    date: Optional[str] = None,
+    source: str = "active",
+    db: Session = Depends(get_db)
+):
+    """Get depreciation aggregated by year and model"""
+    return _get_depreciation_data(source, date, db)
 
 
 # ============================================================

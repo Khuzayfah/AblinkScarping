@@ -259,6 +259,8 @@ async function triggerScrape() {
                 loadSgcarmartSold();
                 loadSgcarmartSoldCount();
                 loadActiveLogCount();
+                // Auto-expand & load both depreciation tables
+                autoExpandAndLoadDepreciationTables();
                 showNotification('Scraping completed. All data refreshed.');
             }
         }, 3000);
@@ -271,6 +273,7 @@ async function triggerScrape() {
             loadSgcarmartSold();
             loadSgcarmartSoldCount();
             loadActiveLogCount();
+            autoExpandAndLoadDepreciationTables();
         }, 300000);
     } catch (e) {
         showNotification('Error: ' + e.message, true);
@@ -499,22 +502,18 @@ function toggleAndLoadSoldDepreciation() {
 }
 
 // Build depreciation table matching exact screenshot format
-// Each year has 3 sub-columns: Lowest, Average, Unit
+// Each year has 3 sub-columns: LOW, AVG, COUNT
 function buildDepreciationTable(data, categories, dateStr) {
-    // Fixed year columns from current year down to 2015, then "2014 & Older"
     var currentYear = new Date().getFullYear();
     var years = [];
-    for (var y = currentYear; y >= 2015; y--) {
-        years.push(y);
-    }
-    var OLDER_KEY = '2014'; // merged "2014 & Older" bucket from API
+    for (var y = currentYear; y >= 2015; y--) { years.push(y); }
+    var OLDER_KEY = '2014';
 
-    // Format date: "DATE: 9 DEC"
     var d = new Date(dateStr + 'T00:00:00');
     var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
     var formattedDate = d.getDate() + ' ' + months[d.getMonth()];
 
-    // Style constants matching screenshot
+    // Colors
     var hdrBg = '#4472C4';
     var hdrBorder = '#3a63a8';
     var subHdrBg = '#D6E4F0';
@@ -523,39 +522,43 @@ function buildDepreciationTable(data, categories, dateStr) {
     var catBorder = '#3d6128';
     var cellBorder = '#B4C6E7';
     var emptyCell = '-';
-    var unitColBg = '#D6E4F0';   // light blue tint for unit columns
-    var avgColBg = '#E8F0FE';    // slightly different blue for average
+    var countColBg = '#D6E4F0';
+    var avgColBg = '#E8F0FE';
 
-    // Total columns for category colspan: 1 (vehicle) + (years+1)*3 (L,A,U per year incl older) + 1 (total units)
-    var yearGroupCount = years.length + 1; // +1 for "2014 & Older"
+    var yearGroupCount = years.length + 1;
     var catColSpan = 1 + (yearGroupCount * 3) + 1;
+    var dataTotalCols = yearGroupCount * 3;
 
-    var html = '<div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:0.72rem;width:100%;min-width:1600px;">';
+    // Shared cell style for readability
+    var cs = 'text-align:center;padding:6px 5px;border:1px solid ' + cellBorder + ';';
+    var csNum = cs + 'font-size:0.78rem;font-weight:700;letter-spacing:0.3px;';
 
-    // === ROW 1: TITLE ===
-    var dataTotalCols = yearGroupCount * 3; // all data columns (years * 3)
+    var html = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">';
+    html += '<table style="border-collapse:collapse;font-size:0.78rem;width:100%;min-width:1600px;">';
+
+    // === TITLE ROW ===
     html += '<tr>';
-    html += '<td style="background:#1f2937;color:white;font-weight:700;padding:8px 12px;border:1px solid ' + hdrBorder + ';white-space:nowrap;">DATE: ' + formattedDate + '</td>';
-    html += '<td colspan="' + dataTotalCols + '" style="background:white;text-align:center;font-size:1.3rem;font-weight:800;letter-spacing:6px;padding:10px;border:1px solid ' + cellBorder + ';">D E P R E C I A T I O N &nbsp; / &nbsp; U N I T S</td>';
+    html += '<td style="background:#1f2937;color:white;font-weight:700;padding:10px 14px;border:1px solid ' + hdrBorder + ';white-space:nowrap;font-size:0.85rem;">DATE: ' + formattedDate + '</td>';
+    html += '<td colspan="' + dataTotalCols + '" style="background:white;text-align:center;font-size:1.3rem;font-weight:800;letter-spacing:8px;padding:12px;border:1px solid ' + cellBorder + ';">D E P R E C I A T I O N &nbsp; / &nbsp; U N I T S</td>';
     html += '<td style="background:white;border:1px solid ' + cellBorder + ';"></td>';
     html += '</tr>';
 
-    // === ROW 2: YEAR HEADERS ===
+    // === YEAR HEADERS ===
     html += '<tr>';
-    html += '<td rowspan="2" style="background:' + hdrBg + ';color:white;font-weight:700;padding:6px 8px;border:1px solid ' + hdrBorder + ';text-align:center;vertical-align:middle;min-width:160px;"></td>';
+    html += '<td rowspan="2" style="background:' + hdrBg + ';color:white;font-weight:700;padding:8px 10px;border:1px solid ' + hdrBorder + ';text-align:center;vertical-align:middle;min-width:170px;font-size:0.82rem;"></td>';
     years.forEach(function(year) {
-        html += '<td colspan="3" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:6px 2px;border:1px solid ' + hdrBorder + ';border-left:2px solid ' + hdrBorder + ';">' + year + '</td>';
+        html += '<td colspan="3" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:8px 4px;border:1px solid ' + hdrBorder + ';border-left:2px solid ' + hdrBorder + ';font-size:0.88rem;">' + year + '</td>';
     });
-    html += '<td colspan="3" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:6px 2px;border:1px solid ' + hdrBorder + ';border-left:2px solid ' + hdrBorder + ';white-space:nowrap;">2014 &amp; Older</td>';
-    html += '<td rowspan="2" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:6px 4px;border:1px solid ' + hdrBorder + ';vertical-align:middle;white-space:nowrap;">TOTAL<br>UNITS</td>';
+    html += '<td colspan="3" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:8px 4px;border:1px solid ' + hdrBorder + ';border-left:2px solid ' + hdrBorder + ';white-space:nowrap;font-size:0.82rem;">2014 &amp; Older</td>';
+    html += '<td rowspan="2" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:8px 6px;border:1px solid ' + hdrBorder + ';vertical-align:middle;white-space:nowrap;font-size:0.82rem;">TOTAL<br>UNITS</td>';
     html += '</tr>';
 
-    // === ROW 3: SUB-HEADERS (Lowest / Average / Unit) ===
+    // === SUB-HEADERS: LOW / AVG / COUNT ===
     html += '<tr>';
     for (var i = 0; i < yearGroupCount; i++) {
-        html += '<td style="background:' + subHdrBg + ';color:' + subHdrColor + ';font-weight:600;text-align:center;padding:3px 1px;border:1px solid ' + cellBorder + ';font-size:0.62rem;border-left:2px solid ' + cellBorder + ';">Lowest</td>';
-        html += '<td style="background:' + subHdrBg + ';color:' + subHdrColor + ';font-weight:600;text-align:center;padding:3px 1px;border:1px solid ' + cellBorder + ';font-size:0.62rem;">Average</td>';
-        html += '<td style="background:' + unitColBg + ';color:' + subHdrColor + ';font-weight:600;text-align:center;padding:3px 1px;border:1px solid ' + cellBorder + ';font-size:0.62rem;"></td>';
+        html += '<td style="background:' + subHdrBg + ';color:' + subHdrColor + ';font-weight:700;text-align:center;padding:5px 3px;border:1px solid ' + cellBorder + ';font-size:0.68rem;border-left:2px solid ' + cellBorder + ';">LOW</td>';
+        html += '<td style="background:' + subHdrBg + ';color:' + subHdrColor + ';font-weight:700;text-align:center;padding:5px 3px;border:1px solid ' + cellBorder + ';font-size:0.68rem;">AVG</td>';
+        html += '<td style="background:' + countColBg + ';color:' + subHdrColor + ';font-weight:700;text-align:center;padding:5px 3px;border:1px solid ' + cellBorder + ';font-size:0.68rem;">COUNT</td>';
     }
     html += '</tr>';
 
@@ -563,9 +566,8 @@ function buildDepreciationTable(data, categories, dateStr) {
     for (var category in categories) {
         if (!categories.hasOwnProperty(category)) continue;
 
-        // Category header
         html += '<tr>';
-        html += '<td colspan="' + catColSpan + '" style="background:' + catBg + ';color:white;font-weight:700;padding:7px 14px;text-align:left;border:1px solid ' + catBorder + ';font-size:0.8rem;letter-spacing:0.5px;">' + category + '</td>';
+        html += '<td colspan="' + catColSpan + '" style="background:' + catBg + ';color:white;font-weight:700;padding:9px 16px;text-align:left;border:1px solid ' + catBorder + ';font-size:0.85rem;letter-spacing:0.5px;">' + category + '</td>';
         html += '</tr>';
 
         var models = categories[category];
@@ -576,45 +578,51 @@ function buildDepreciationTable(data, categories, dateStr) {
             rowIdx++;
 
             html += '<tr style="background:' + rowBg + ';">';
-            html += '<td style="text-align:left;font-weight:600;padding:4px 8px;border:1px solid ' + cellBorder + ';white-space:nowrap;">' + vehicle + '</td>';
+            html += '<td style="text-align:left;font-weight:700;padding:6px 10px;border:1px solid ' + cellBorder + ';white-space:nowrap;font-size:0.8rem;color:#1e3a5f;">' + vehicle + '</td>';
 
             var totalUnits = 0;
 
-            // Helper to render one year group (3 cells)
             function renderYearGroup(yearData) {
                 if (yearData && (yearData.lowest || yearData.unit)) {
                     var lo = yearData.lowest ? '$' + yearData.lowest.toLocaleString() : emptyCell;
                     var av = yearData.average ? '$' + yearData.average.toLocaleString() : emptyCell;
                     var un = yearData.unit || 0;
                     totalUnits += un;
-                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';border-left:2px solid ' + cellBorder + ';font-size:0.71rem;">' + lo + '</td>';
-                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';font-size:0.71rem;background:' + avgColBg + ';">' + av + '</td>';
-                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';font-size:0.71rem;background:' + unitColBg + ';font-weight:600;">' + un + '</td>';
+                    html += '<td style="' + csNum + 'border-left:2px solid ' + cellBorder + ';color:#1a5f2a;">' + lo + '</td>';
+                    html += '<td style="' + csNum + 'background:' + avgColBg + ';color:#4472C4;">' + av + '</td>';
+                    html += '<td style="' + csNum + 'background:' + countColBg + ';color:#1f2937;">' + un + '</td>';
                 } else {
-                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';border-left:2px solid ' + cellBorder + ';color:#ccc;">' + emptyCell + '</td>';
-                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';background:' + avgColBg + ';color:#ccc;">' + emptyCell + '</td>';
-                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';background:' + unitColBg + ';color:#ccc;">' + emptyCell + '</td>';
+                    html += '<td style="' + cs + 'border-left:2px solid ' + cellBorder + ';color:#d1d5db;">' + emptyCell + '</td>';
+                    html += '<td style="' + cs + 'background:' + avgColBg + ';color:#d1d5db;">' + emptyCell + '</td>';
+                    html += '<td style="' + cs + 'background:' + countColBg + ';color:#d1d5db;">' + emptyCell + '</td>';
                 }
             }
 
-            // Regular years
             years.forEach(function(year) {
                 var yd = vehicleData[year] || vehicleData[String(year)];
                 renderYearGroup(yd);
             });
 
-            // "2014 & Older"
             var olderData = vehicleData[OLDER_KEY] || vehicleData[parseInt(OLDER_KEY)];
             renderYearGroup(olderData);
 
-            // Total Units
-            html += '<td style="text-align:center;font-weight:700;padding:4px 6px;border:1px solid ' + cellBorder + ';background:#E2EFDA;font-size:0.8rem;">' + totalUnits + '</td>';
+            html += '<td style="text-align:center;font-weight:800;padding:6px 8px;border:1px solid ' + cellBorder + ';background:#E2EFDA;font-size:0.88rem;color:#1a5f2a;">' + totalUnits + '</td>';
             html += '</tr>';
         });
     }
 
     html += '</table></div>';
     return html;
+}
+
+// Export depreciation table data
+function exportDepreciationTable(source, format) {
+    var dateInput = document.getElementById('activeDepreciationDate');
+    var date = (source === 'active' && dateInput) ? dateInput.value : '';
+    var url = '/api/export/depreciation-' + format + '?source=' + source;
+    if (date) url += '&date=' + date;
+    window.open(url, '_blank');
+    showNotification('Downloading Depreciation ' + format.toUpperCase() + '...');
 }
 
 // Load active listings depreciation table
@@ -693,6 +701,32 @@ async function loadSoldDepreciationTable() {
     }
 }
 
+// Auto-expand & load both depreciation tables
+function autoExpandAndLoadDepreciationTables() {
+    var today = new Date().toISOString().slice(0, 10);
+
+    // Active depreciation: expand + set date + load
+    var activeBody = document.getElementById('activeDepreciationBody');
+    var activeIcon = document.getElementById('activeDepreciationIcon');
+    var activeDate = document.getElementById('activeDepreciationDate');
+    if (activeBody && activeBody.style.display === 'none') {
+        activeBody.style.display = 'block';
+        if (activeIcon) activeIcon.className = 'bi bi-chevron-down';
+    }
+    if (activeDate) activeDate.value = today;
+    loadActiveDepreciationTable();
+
+    // Sold depreciation: expand + load
+    var soldBody = document.getElementById('soldDepreciationBody');
+    var soldIcon = document.getElementById('soldDepreciationIcon');
+    if (soldBody && soldBody.style.display === 'none') {
+        soldBody.style.display = 'block';
+        if (soldIcon) soldIcon.className = 'bi bi-chevron-down';
+    }
+    loadSoldDepreciationTable();
+    if (soldBody) soldBody.dataset.loaded = 'true';
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     loadStatus();
     var today = new Date().toISOString().slice(0, 10);
@@ -710,6 +744,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // Load stats for badges
     loadActiveLogCount(today);
     loadSgcarmartSoldCount();
+    // Auto-expand and load both depreciation tables on page load
+    autoExpandAndLoadDepreciationTables();
 });
 
 async function loadActiveLogCount(date) {

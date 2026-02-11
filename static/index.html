@@ -613,13 +613,18 @@
                     <small class="text-muted">Click to expand</small>
                 </div>
                 <div id="activeDepreciationBody" class="data-log-body" style="display:none;">
-                    <div class="d-flex align-items-center gap-2 mb-3">
+                    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
                         <label class="mb-0 small fw-bold">Date:</label>
                         <input type="date" id="activeDepreciationDate">
-                        <button class="btn btn-sm btn-outline-primary" onclick="loadActiveDepreciationTable()">Load</button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadActiveDepreciationTable()"><i class="bi bi-arrow-clockwise"></i> Load</button>
+                        <div class="ms-auto d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-success" onclick="exportDepreciationTable('active','csv')"><i class="bi bi-file-earmark-spreadsheet"></i> CSV</button>
+                            <button class="btn btn-sm btn-outline-success" onclick="exportDepreciationTable('active','excel')"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="exportDepreciationTable('active','pdf')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+                        </div>
                     </div>
                     <div id="activeDepreciationContainer" style="overflow-x:auto;">
-                        <div class="sold-log-empty">Select a date and click Load.</div>
+                        <div class="sold-log-empty">Loading...</div>
                     </div>
                 </div>
             </div>
@@ -635,14 +640,19 @@
                     <small class="text-muted">SGCarMart accumulated sold data (click to expand & load)</small>
                 </div>
                 <div id="soldDepreciationBody" class="data-log-body" style="display:none;">
-                    <div class="d-flex align-items-center gap-2 mb-3">
+                    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
                         <button class="btn btn-sm btn-outline-primary" onclick="loadSoldDepreciationTable()">
                             <i class="bi bi-arrow-clockwise"></i> Refresh Data
                         </button>
                         <span class="small text-muted" id="soldDepreciationInfo">Shows all accumulated sold vehicles from SGCarMart</span>
+                        <div class="ms-auto d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-success" onclick="exportDepreciationTable('sold','csv')"><i class="bi bi-file-earmark-spreadsheet"></i> CSV</button>
+                            <button class="btn btn-sm btn-outline-success" onclick="exportDepreciationTable('sold','excel')"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="exportDepreciationTable('sold','pdf')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+                        </div>
                     </div>
                     <div id="soldDepreciationContainer" style="overflow-x:auto;">
-                        <div class="sold-log-empty">Click header to expand and auto-load sold data.</div>
+                        <div class="sold-log-empty">Loading...</div>
                     </div>
                 </div>
             </div>
