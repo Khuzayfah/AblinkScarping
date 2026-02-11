@@ -624,23 +624,25 @@
                 </div>
             </div>
 
-            <!-- Depreciation / Units Table: Sold Listings -->
+            <!-- Depreciation / Units Table: Sold Listings (ALL-TIME from SGCarMart) -->
             <div class="data-log-section">
-                <div class="data-log-header log-sold" onclick="toggleSoldDepreciationTable()">
+                <div class="data-log-header log-sold" onclick="toggleAndLoadSoldDepreciation()">
                     <h4>
                         <i class="bi bi-chevron-right" id="soldDepreciationIcon"></i>
                         <i class="bi bi-graph-down"></i> Sold Listings - Depreciation / Units by Year
+                        <span class="badge bg-warning text-dark ms-2" style="font-size:0.7rem;">ALL-TIME</span>
                     </h4>
-                    <small class="text-muted">Click to expand</small>
+                    <small class="text-muted">SGCarMart accumulated sold data (click to expand & load)</small>
                 </div>
                 <div id="soldDepreciationBody" class="data-log-body" style="display:none;">
                     <div class="d-flex align-items-center gap-2 mb-3">
-                        <label class="mb-0 small fw-bold">Date:</label>
-                        <input type="date" id="soldDepreciationDate">
-                        <button class="btn btn-sm btn-outline-primary" onclick="loadSoldDepreciationTable()">Load</button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadSoldDepreciationTable()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh Data
+                        </button>
+                        <span class="small text-muted" id="soldDepreciationInfo">Shows all accumulated sold vehicles from SGCarMart</span>
                     </div>
                     <div id="soldDepreciationContainer" style="overflow-x:auto;">
-                        <div class="sold-log-empty">Select a date and click Load.</div>
+                        <div class="sold-log-empty">Click header to expand and auto-load sold data.</div>
                     </div>
                 </div>
             </div>

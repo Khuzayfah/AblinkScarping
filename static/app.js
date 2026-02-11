@@ -482,6 +482,22 @@ function toggleSoldDepreciationTable() {
     icon.className = isHidden ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
 }
 
+// Toggle AND auto-load sold depreciation when expanded
+function toggleAndLoadSoldDepreciation() {
+    var body = document.getElementById('soldDepreciationBody');
+    var icon = document.getElementById('soldDepreciationIcon');
+    var isHidden = body.style.display === 'none';
+
+    body.style.display = isHidden ? 'block' : 'none';
+    icon.className = isHidden ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
+
+    // Auto-load data when expanding (only load once)
+    if (isHidden && !body.dataset.loaded) {
+        loadSoldDepreciationTable();
+        body.dataset.loaded = 'true';
+    }
+}
+
 // Build depreciation table like screenshot with category grouping
 function buildDepreciationTable(data, categories, dateStr) {
     // Get all years from all vehicles
@@ -617,22 +633,16 @@ async function loadActiveDepreciationTable() {
     }
 }
 
-// Load sold listings depreciation table
+// Load sold listings depreciation table (ALL-TIME accumulated sold data)
 async function loadSoldDepreciationTable() {
-    var dateInput = document.getElementById('soldDepreciationDate');
-    var date = dateInput && dateInput.value ? dateInput.value : '';
-    if (!date) {
-        showNotification('Please select a date', true);
-        return;
-    }
-
     var container = document.getElementById('soldDepreciationContainer');
     container.innerHTML = '<div class="sold-log-empty">Loading...</div>';
 
     try {
         // Fetch depreciation data and categories in parallel
+        // Note: sold source uses ALL accumulated sold data (all-time), no date filter
         var [depRes, catRes] = await Promise.all([
-            fetch('/api/depreciation-by-year?date=' + date + '&source=sold'),
+            fetch('/api/depreciation-by-year?source=sold'),
             fetch('/api/vehicle-categories')
         ]);
 
@@ -642,11 +652,23 @@ async function loadSoldDepreciationTable() {
         var categories = await catRes.json();
 
         if (Object.keys(result.data).length === 0) {
-            container.innerHTML = '<div class="sold-log-empty">No sold depreciation data for this date.</div>';
+            container.innerHTML = '<div class="sold-log-empty">No sold depreciation data available. Click REFRESH DATA to scrape SGCarMart sold listings.</div>';
             return;
         }
 
-        container.innerHTML = buildDepreciationTable(result.data, categories.categories, date);
+        // Use today's date for display since it's current accumulated data
+        var today = new Date().toISOString().slice(0, 10);
+        container.innerHTML = buildDepreciationTable(result.data, categories.categories, today);
+
+        // Show stats
+        var totalModels = Object.keys(result.data).length;
+        var totalUnits = 0;
+        for (var model in result.data) {
+            for (var year in result.data[model]) {
+                totalUnits += result.data[model][year].unit || 0;
+            }
+        }
+        showNotification('Loaded sold depreciation: ' + totalUnits + ' units across ' + totalModels + ' models (all-time accumulated)');
     } catch (e) {
         container.innerHTML = '<div class="sold-log-empty">Error loading sold depreciation table: ' + e.message + '</div>';
     }

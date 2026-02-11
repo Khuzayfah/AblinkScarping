@@ -612,10 +612,12 @@ async def get_depreciation_by_year(
     db: Session = Depends(get_db)
 ):
     """Get depreciation aggregated by year and model
-    source: 'active' (VehicleListing) or 'sold' (SoldLog)
+    source: 'active' (VehicleListing - latest scrape)
+           'sold' (SgcarmartSold - all accumulated sold from SGCarMart)
     Returns: {model_name: {year: {lowest, average, unit}}}
     """
     import re
+    from database import ListingCache, SgcarmartSold
 
     if date:
         try:
@@ -629,14 +631,18 @@ async def get_depreciation_by_year(
 
     # Query based on source
     if source == "sold":
-        rows = db.query(SoldLog).filter(
-            and_(
-                SoldLog.sold_date >= datetime.combine(target_date, datetime.min.time()),
-                SoldLog.sold_date < datetime.combine(next_date, datetime.min.time())
-            )
-        ).all()
+        # Use SgcarmartSold (accumulated sold from avl=s) for ALL-TIME sold data
+        # No date filter - we show all accumulated sold vehicles
+        rows = db.query(SgcarmartSold).all()
         year_field = 'year_registered'
+
+        # Build listing_cache map for depreciation lookup (SGCarMart removes depreciation when sold)
+        cache_map = {}
+        for cache_entry in db.query(ListingCache).all():
+            cache_map[cache_entry.make_model] = cache_entry.depreciation
+
     else:  # active
+        # Use latest VehicleListing data (active scrapes from today or specified date)
         rows = db.query(VehicleListing).filter(
             and_(
                 VehicleListing.scrape_date >= target_date,
@@ -644,24 +650,34 @@ async def get_depreciation_by_year(
             )
         ).all()
         year_field = 'registered_year'
+        cache_map = None
 
     # Parse depreciation string to number
     def parse_depreciation(dep_str):
         """Extract numeric value from depreciation string like '$16,890/yr' -> 16890"""
         if not dep_str:
             return None
+        # Skip dummy value
+        if dep_str == "$5,001/yr":
+            return None
         # Remove $ and /yr, extract numbers
         match = re.search(r'[\d,]+', str(dep_str))
         if match:
             num_str = match.group(0).replace(',', '')
             try:
-                return int(num_str)
+                val = int(num_str)
+                # Filter out obviously invalid values
+                if val == 0 or val == 5001:
+                    return None
+                return val
             except:
                 return None
         return None
 
     # Aggregate by model and year
     result = {}
+    skipped_no_dep = 0
+
     for row in rows:
         model = _normalize_model(row.make_model)
         if not model:
@@ -671,8 +687,16 @@ async def get_depreciation_by_year(
         if not year:
             continue
 
+        # Get depreciation: try row first, then fallback to cache for sold items
         dep_value = parse_depreciation(row.depreciation)
+
+        if dep_value is None and source == "sold" and cache_map:
+            # Try to get from cache using exact make_model match
+            cached_dep = cache_map.get(row.make_model)
+            dep_value = parse_depreciation(cached_dep)
+
         if dep_value is None:
+            skipped_no_dep += 1
             continue
 
         if model not in result:
@@ -699,9 +723,12 @@ async def get_depreciation_by_year(
                 'unit': len(values)
             }
 
+    logger.info(f"[DEPRECIATION-BY-YEAR] source={source}, models={len(final)}, skipped_no_dep={skipped_no_dep}")
+
     return {
-        "date": target_date.isoformat(),
+        "date": target_date.isoformat() if source == "active" else "all-time",
         "source": source,
+        "total_rows": len(rows),
         "data": final
     }
 
