@@ -1,0 +1,50 @@
+# Coolify Configuration for Ablink SGCarMart Scraper
+# This file is optional but helps Coolify auto-configure the deployment
+
+version: '1'
+
+service:
+  name: ablink-sgcarmart-scraper
+  type: application
+
+build:
+  dockerfile: ./Dockerfile
+  context: .
+
+ports:
+  - "3000:3000"  # Internal port 3000 mapped to external
+
+volumes:
+  - type: bind
+    source: /var/lib/coolify/volumes/ablink-scraper/data
+    target: /app/data
+    description: "Database and persistent data storage"
+
+environment:
+  - DATABASE_URL=sqlite:///./data/scraping.db
+  - TZ=Asia/Singapore
+  - PYTHONUNBUFFERED=1
+  - PORT=3000
+
+healthcheck:
+  type: http
+  path: /api/health
+  port: 3000
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 90s
+
+resources:
+  limits:
+    memory: 2048M
+    cpus: '2.0'
+  reservations:
+    memory: 512M
+    cpus: '0.5'
+
+labels:
+  - "coolify.managed=true"
+  - "coolify.name=ablink-scraper"
+  - "coolify.description=SGCarMart Commercial Vehicle Scraper"
+  - "coolify.version=1.1.0"
