@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
 import config
-from database import SessionLocal, VehicleListing, SoldLog, SgcarmartSold
+from database import SessionLocal, VehicleListing, SoldLog, SgcarmartSold, ListingCache
 
 logger = logging.getLogger("scraper")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -654,6 +654,22 @@ class SGCarMartJSScraper:
             detail_fetch_count = 0
             MAX_DETAIL_FETCHES = 80  # Limit detail page fetches to avoid 429
 
+            # Pre-load listing cache for fast lookup (data from when listings were active)
+            cache_db = SessionLocal()
+            cache_lookup = {}
+            try:
+                cache_rows = cache_db.query(ListingCache).all()
+                for row in cache_rows:
+                    if row.listing_url_clean:
+                        cache_lookup[row.listing_url_clean] = {
+                            'depreciation': row.depreciation,
+                            'price': row.price,
+                            'dealer_name': row.dealer_name,
+                        }
+                logger.info(f"  Loaded {len(cache_lookup)} listing cache entries for sold lookup")
+            finally:
+                cache_db.close()
+
             for item in sold_data:
                 name = item.get('car_model', '')
                 link = item.get('link', '')
@@ -670,14 +686,27 @@ class SGCarMartJSScraper:
                 if not dealer_name and dealer_code:
                     dealer_name = global_dealer_map.get(dealer_code, '')
 
-                # Fetch detail page for missing dealer OR missing depreciation
-                needs_detail = (not dealer_name or not dep_str) and link and detail_fetch_count < MAX_DETAIL_FETCHES
-                if needs_detail:
+                # Try listing cache first (data captured while listing was active)
+                clean_link = link.split('?')[0] if link else ''
+                if clean_link and clean_link in cache_lookup:
+                    cached = cache_lookup[clean_link]
+                    if not dep_str and cached.get('depreciation') and cached['depreciation'] != '–':
+                        dep_str = cached['depreciation']
+                        logger.info(f"    [CACHE-HIT] {name} -> dep={dep_str}")
+                    if not item.get('price') and cached.get('price'):
+                        item['price'] = cached['price']
+                    if (not dealer_name or dealer_name == '–') and cached.get('dealer_name') and cached['dealer_name'] != '–':
+                        dealer_name = cached['dealer_name']
+
+                # Only fetch detail page if we still need dealer name
+                # (detail pages for sold items show N.A. for depreciation, so skip dep fetch)
+                if not dealer_name and link and detail_fetch_count < MAX_DETAIL_FETCHES:
                     time.sleep(1.5)
                     detail_dealer, detail_dep = self._fetch_detail_page_dealer(session, link, global_dealer_map)
                     detail_fetch_count += 1
-                    if detail_dealer and not dealer_name:
+                    if detail_dealer:
                         dealer_name = detail_dealer
+                    # detail_dep will be empty for sold pages (N.A.), but try anyway
                     if detail_dep and not dep_str:
                         dep_str = detail_dep
 
@@ -714,7 +743,9 @@ class SGCarMartJSScraper:
     def _save_sold_to_db(self, data: List[Dict[str, Any]]):
         """Save sold listings to SgcarmartSold table (accumulated), skipping duplicates by URL.
 
-        Multi-layer depreciation lookup (SGCarMart always returns 0 for sold items):
+        Multi-layer depreciation + price + dealer lookup
+        (SGCarMart removes depreciation & price from detail pages once sold):
+          Layer 0: From listing_cache (captured while listing was active - most reliable)
           Layer 1: From scraper detail page (already in item data)
           Layer 2: From vehicle_listings table (active listings have real depreciation)
           Layer 3: From sold_log table (comparison-based sold detection keeps original dep)
@@ -731,37 +762,60 @@ class SGCarMartJSScraper:
                 if row[0]:
                     existing_urls.add(row[0].split('?')[0])
 
-            # === Build depreciation lookup maps ===
+            # === Build lookup maps ===
+
+            # Layer 0: listing_cache (data captured while listing was still active)
+            cache_map = {}  # url -> {depreciation, price, dealer_name}
+            cache_rows = db.query(ListingCache).all()
+            for row in cache_rows:
+                if row.listing_url_clean:
+                    cache_map[row.listing_url_clean] = {
+                        'depreciation': row.depreciation,
+                        'price': row.price,
+                        'dealer_name': row.dealer_name,
+                    }
 
             # Layer 2: vehicle_listings (active listings scraped previously)
             active_dep_map = {}  # url -> depreciation
+            active_price_map = {}  # url -> price
+            active_dealer_map = {}  # url -> dealer_name
             active_rows = db.query(
                 VehicleListing.listing_url,
-                VehicleListing.depreciation
+                VehicleListing.depreciation,
+                VehicleListing.price,
+                VehicleListing.dealer_name
             ).filter(
-                VehicleListing.depreciation.isnot(None),
-                VehicleListing.depreciation != '',
-                VehicleListing.depreciation != '–'
+                VehicleListing.listing_url.isnot(None),
+                VehicleListing.listing_url != ''
             ).all()
             for row in active_rows:
                 if row[0]:
                     clean = row[0].split('?')[0]
-                    active_dep_map[clean] = row[1]
+                    if row[1] and row[1] not in ('', '–'):
+                        active_dep_map[clean] = row[1]
+                    if row[2]:
+                        active_price_map[clean] = row[2]
+                    if row[3] and row[3] not in ('', '–'):
+                        active_dealer_map[clean] = row[3]
 
             # Layer 3: sold_log (comparison method keeps original depreciation)
             soldlog_dep_map = {}  # url -> depreciation
+            soldlog_price_map = {}  # url -> price
             soldlog_rows = db.query(
                 SoldLog.listing_url,
-                SoldLog.depreciation
+                SoldLog.depreciation,
+                SoldLog.price
             ).filter(
-                SoldLog.depreciation.isnot(None),
-                SoldLog.depreciation != '',
-                SoldLog.depreciation != '–'
+                SoldLog.listing_url.isnot(None),
+                SoldLog.listing_url != ''
             ).all()
             for row in soldlog_rows:
                 if row[0]:
                     clean = row[0].split('?')[0]
-                    soldlog_dep_map[clean] = row[1]
+                    if row[1] and row[1] not in ('', '–'):
+                        soldlog_dep_map[clean] = row[1]
+                    if row[2]:
+                        soldlog_price_map[clean] = row[2]
 
             # Layer 4: existing sgcarmart_sold (same model+year might have dep from earlier scrape)
             model_dep_map = {}  # (make_model_upper, year) -> depreciation
@@ -779,11 +833,11 @@ class SGCarMartJSScraper:
                     key = (row[0].upper().strip(), row[1])
                     model_dep_map[key] = row[2]
 
-            logger.info(f"  Depreciation maps: active={len(active_dep_map)}, sold_log={len(soldlog_dep_map)}, model_match={len(model_dep_map)}")
+            logger.info(f"  Lookup maps: cache={len(cache_map)}, active={len(active_dep_map)}, sold_log={len(soldlog_dep_map)}, model_match={len(model_dep_map)}")
 
             saved = 0
             skipped = 0
-            dep_found = {'scraper': 0, 'active': 0, 'soldlog': 0, 'model': 0, 'missing': 0}
+            dep_found = {'cache': 0, 'scraper': 0, 'active': 0, 'soldlog': 0, 'model': 0, 'missing': 0}
 
             for item in data:
                 url = item.get('listing_url', '')
@@ -793,10 +847,25 @@ class SGCarMartJSScraper:
                     continue
 
                 dep = item.get('depreciation', '') or ''
+                price = item.get('price')
+                dealer = item.get('dealer_name', '') or ''
                 source = ''
 
+                # Layer 0: listing_cache (data from when listing was active - most reliable)
+                if clean_url and clean_url in cache_map:
+                    cached = cache_map[clean_url]
+                    if not dep or dep == '–':
+                        if cached['depreciation'] and cached['depreciation'] != '–':
+                            dep = cached['depreciation']
+                            source = 'cache'
+                            dep_found['cache'] += 1
+                    if not price and cached['price']:
+                        price = cached['price']
+                    if (not dealer or dealer == '–') and cached['dealer_name'] and cached['dealer_name'] != '–':
+                        dealer = cached['dealer_name']
+
                 # Layer 1: Already have from scraper/detail page?
-                if dep and dep != '–':
+                if not source and dep and dep != '–':
                     source = 'scraper'
                     dep_found['scraper'] += 1
 
@@ -805,12 +874,18 @@ class SGCarMartJSScraper:
                     dep = active_dep_map[clean_url]
                     source = 'active'
                     dep_found['active'] += 1
+                if not price and clean_url and clean_url in active_price_map:
+                    price = active_price_map[clean_url]
+                if (not dealer or dealer == '–') and clean_url and clean_url in active_dealer_map:
+                    dealer = active_dealer_map[clean_url]
 
                 # Layer 3: Cross-reference from sold_log (exact URL match)
                 if not source and clean_url and clean_url in soldlog_dep_map:
                     dep = soldlog_dep_map[clean_url]
                     source = 'soldlog'
                     dep_found['soldlog'] += 1
+                if not price and clean_url and clean_url in soldlog_price_map:
+                    price = soldlog_price_map[clean_url]
 
                 # Layer 4: Match by model name + year from previously saved sold items
                 if not source:
@@ -826,16 +901,19 @@ class SGCarMartJSScraper:
                     dep = '–'
                     dep_found['missing'] += 1
 
+                if not dealer or dealer == '–':
+                    dealer = '–'
+
                 if source:
-                    logger.info(f"    [DEP-{source.upper()}] {item.get('make_model','')} -> {dep}")
+                    logger.info(f"    [DEP-{source.upper()}] {item.get('make_model','')} -> {dep} | ${price or '?'} | {dealer}")
 
                 db.add(SgcarmartSold(
                     scrape_date=now,
                     make_model=item.get('make_model', ''),
                     year_registered=item.get('registered_year'),
                     depreciation=dep,
-                    dealer_name=item.get('dealer_name', '–'),
-                    price=item.get('price'),
+                    dealer_name=dealer,
+                    price=price,
                     listing_url=item.get('listing_url', ''),
                 ))
                 if clean_url:
@@ -857,8 +935,8 @@ class SGCarMartJSScraper:
 
     @staticmethod
     def _backfill_sold_depreciation(db):
-        """Backfill depreciation for existing sgcarmart_sold entries that have '–'.
-        Uses vehicle_listings and sold_log as sources."""
+        """Backfill depreciation/price/dealer for existing sgcarmart_sold entries that have '–'.
+        Uses listing_cache, vehicle_listings, and sold_log as sources."""
         try:
             missing = db.query(SgcarmartSold).filter(
                 (SgcarmartSold.depreciation == '–') |
@@ -871,6 +949,20 @@ class SGCarMartJSScraper:
                 return
 
             logger.info(f"  [BACKFILL] {len(missing)} sold entries missing depreciation, trying to fill...")
+
+            # Build lookup from listing_cache (highest priority)
+            cache_map = {}
+            for row in db.query(ListingCache).filter(
+                ListingCache.depreciation.isnot(None),
+                ListingCache.depreciation != '',
+                ListingCache.depreciation != '–'
+            ).all():
+                if row.listing_url_clean:
+                    cache_map[row.listing_url_clean] = {
+                        'depreciation': row.depreciation,
+                        'price': row.price,
+                        'dealer_name': row.dealer_name,
+                    }
 
             # Build lookup from vehicle_listings
             active_map = {}
@@ -908,8 +1000,18 @@ class SGCarMartJSScraper:
                 dep = None
                 src = ''
 
+                # Try listing_cache first (most reliable)
+                if clean_url and clean_url in cache_map:
+                    cached = cache_map[clean_url]
+                    dep = cached['depreciation']
+                    src = 'cache'
+                    # Also fill price and dealer if missing
+                    if not entry.price and cached.get('price'):
+                        entry.price = cached['price']
+                    if (not entry.dealer_name or entry.dealer_name == '–') and cached.get('dealer_name') and cached['dealer_name'] != '–':
+                        entry.dealer_name = cached['dealer_name']
                 # Try URL match from active
-                if clean_url and clean_url in active_map:
+                elif clean_url and clean_url in active_map:
                     dep = active_map[clean_url]
                     src = 'active'
                 # Try URL match from sold_log
@@ -1046,7 +1148,7 @@ class SGCarMartJSScraper:
         return scraped_data
 
     def _save_to_db(self, data: List[Dict[str, Any]]):
-        """Save scraped data to database."""
+        """Save scraped data to database and update listing cache."""
         db = SessionLocal()
         try:
             for item in data:
@@ -1062,11 +1164,72 @@ class SGCarMartJSScraper:
                 ))
             db.commit()
             logger.info(f"[OK] Saved {len(data)} listings to database")
+
+            # Update listing cache with active data
+            self._update_listing_cache(db, data)
         except Exception as e:
             logger.error(f"Error saving: {e}")
             db.rollback()
         finally:
             db.close()
+
+    @staticmethod
+    def _update_listing_cache(db, data: List[Dict[str, Any]]):
+        """Update listing_cache with data from active listings.
+        This stores depreciation/price/dealer while the listing is active,
+        so we can look it up later when SGCarMart marks it as sold
+        (sold pages show N.A. for depreciation and remove price).
+        """
+        now = datetime.now()
+        updated = 0
+        inserted = 0
+        try:
+            for item in data:
+                url = item.get('listing_url', '')
+                if not url:
+                    continue
+                clean_url = url.split('?')[0]
+
+                dep = item.get('depreciation', '') or ''
+                dealer = item.get('dealer_name', '') or ''
+                price = item.get('price')
+
+                # Only cache if we have useful data
+                if not dep or dep == '–':
+                    if not price and not dealer:
+                        continue
+
+                existing = db.query(ListingCache).filter(
+                    ListingCache.listing_url_clean == clean_url
+                ).first()
+
+                if existing:
+                    # Update if new data is better
+                    if dep and dep != '–' and (not existing.depreciation or existing.depreciation == '–'):
+                        existing.depreciation = dep
+                    if dealer and dealer != '–' and (not existing.dealer_name or existing.dealer_name == '–'):
+                        existing.dealer_name = dealer
+                    if price and not existing.price:
+                        existing.price = price
+                    existing.last_seen = now
+                    updated += 1
+                else:
+                    db.add(ListingCache(
+                        listing_url_clean=clean_url,
+                        make_model=item.get('make_model', ''),
+                        year_registered=item.get('registered_year'),
+                        depreciation=dep if dep and dep != '–' else None,
+                        dealer_name=dealer if dealer and dealer != '–' else None,
+                        price=price,
+                        last_seen=now,
+                    ))
+                    inserted += 1
+
+            db.commit()
+            logger.info(f"[CACHE] Updated {updated}, inserted {inserted} listing cache entries")
+        except Exception as e:
+            logger.error(f"[CACHE] Error updating listing cache: {e}")
+            db.rollback()
 
 
 if __name__ == "__main__":

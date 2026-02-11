@@ -134,6 +134,24 @@ class SgcarmartSold(Base):
         }
 
 
+class ListingCache(Base):
+    """Cache of listing data captured while active.
+    SGCarMart removes depreciation/price from detail pages once sold,
+    so we store this data while the listing is still active.
+    Keyed by listing URL (without query params).
+    """
+    __tablename__ = "listing_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    listing_url_clean = Column(String(500), unique=True, index=True)  # URL without ?params
+    make_model = Column(String(200))
+    year_registered = Column(Integer)
+    depreciation = Column(String(100))
+    dealer_name = Column(String(200))
+    price = Column(Float)
+    last_seen = Column(DateTime, default=datetime.now)  # last time seen as active
+
+
 # Create engine and session
 engine = create_engine(config.DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -141,6 +159,90 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def init_db():
     """Initialize database tables"""
     Base.metadata.create_all(bind=engine)
+
+    # Migrate: populate listing_cache from existing vehicle_listings data
+    _migrate_listing_cache()
+
+
+def _migrate_listing_cache():
+    """One-time migration: populate listing_cache from existing vehicle_listings.
+    This ensures we have cached depreciation/price data for listings
+    that were previously scraped while active.
+    """
+    from sqlalchemy import text, inspect
+    db = SessionLocal()
+    try:
+        # Check if listing_cache already has data (skip if already migrated)
+        count = db.query(ListingCache).count()
+        if count > 0:
+            return
+
+        # Check if vehicle_listings has any data to migrate
+        inspector = inspect(engine)
+        if 'vehicle_listings' not in inspector.get_table_names():
+            return
+
+        vl_count = db.query(VehicleListing).count()
+        if vl_count == 0:
+            return
+
+        # Populate cache from vehicle_listings (latest data per URL)
+        from sqlalchemy import func
+        # Get the latest listing per URL with valid depreciation
+        subq = db.query(
+            VehicleListing.listing_url,
+            func.max(VehicleListing.id).label('max_id')
+        ).filter(
+            VehicleListing.listing_url.isnot(None),
+            VehicleListing.listing_url != ''
+        ).group_by(VehicleListing.listing_url).subquery()
+
+        rows = db.query(VehicleListing).join(
+            subq, VehicleListing.id == subq.c.max_id
+        ).all()
+
+        seen_urls = set()
+        inserted = 0
+        for row in rows:
+            url = row.listing_url
+            if not url:
+                continue
+            clean_url = url.split('?')[0]
+
+            # Skip duplicates (different query params, same base URL)
+            if clean_url in seen_urls:
+                continue
+            seen_urls.add(clean_url)
+
+            dep = (row.depreciation or '').strip()
+            dealer = (row.dealer_name or '').strip()
+            price = row.price
+
+            if not dep or dep == '–':
+                if not price and (not dealer or dealer == '–'):
+                    continue
+
+            db.add(ListingCache(
+                listing_url_clean=clean_url,
+                make_model=row.make_model or '',
+                year_registered=row.registered_year,
+                depreciation=dep if dep and dep != '–' else None,
+                dealer_name=dealer if dealer and dealer != '–' else None,
+                price=price,
+                last_seen=row.scrape_date,
+            ))
+            inserted += 1
+
+        if inserted:
+            db.commit()
+            import logging
+            logging.getLogger("database").info(f"[MIGRATE] Populated listing_cache with {inserted} entries from vehicle_listings")
+    except Exception as e:
+        import logging
+        logging.getLogger("database").warning(f"[MIGRATE] listing_cache migration note: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 def get_db():
     """Get database session"""

@@ -498,103 +498,122 @@ function toggleAndLoadSoldDepreciation() {
     }
 }
 
-// Build depreciation table like screenshot with category grouping
+// Build depreciation table matching exact screenshot format
+// Each year has 3 sub-columns: Lowest, Average, Unit
 function buildDepreciationTable(data, categories, dateStr) {
-    // Get all years from all vehicles
-    var allYears = new Set();
-    for (var model in data) {
-        if (data.hasOwnProperty(model)) {
-            for (var year in data[model]) {
-                allYears.add(parseInt(year));
-            }
-        }
+    // Fixed year columns from current year down to 2015, then "2014 & Older"
+    var currentYear = new Date().getFullYear();
+    var years = [];
+    for (var y = currentYear; y >= 2015; y--) {
+        years.push(y);
     }
-    var years = Array.from(allYears).sort().reverse(); // 2025, 2024, 2023...
+    var OLDER_KEY = '2014'; // merged "2014 & Older" bucket from API
 
-    if (years.length === 0) {
-        return '<div class="sold-log-empty">No data available for this date.</div>';
-    }
-
-    // Format date nicely: "9 DEC"
-    var dateParts = dateStr.split('-'); // 2026-02-09
+    // Format date: "DATE: 9 DEC"
     var d = new Date(dateStr + 'T00:00:00');
     var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
     var formattedDate = d.getDate() + ' ' + months[d.getMonth()];
 
-    var yearColSpan = years.length * 3; // 3 columns per year (L, A, U)
-    var totalColSpan = yearColSpan + 3; // +3 for DATE + VEHICLE NAME + TOTAL UNITS
+    // Style constants matching screenshot
+    var hdrBg = '#4472C4';
+    var hdrBorder = '#3a63a8';
+    var subHdrBg = '#D6E4F0';
+    var subHdrColor = '#1f2937';
+    var catBg = '#548235';
+    var catBorder = '#3d6128';
+    var cellBorder = '#B4C6E7';
+    var emptyCell = '-';
+    var unitColBg = '#D6E4F0';   // light blue tint for unit columns
+    var avgColBg = '#E8F0FE';    // slightly different blue for average
 
-    var html = '<table class="table data-table" style="font-size:0.75rem;">';
+    // Total columns for category colspan: 1 (vehicle) + (years+1)*3 (L,A,U per year incl older) + 1 (total units)
+    var yearGroupCount = years.length + 1; // +1 for "2014 & Older"
+    var catColSpan = 1 + (yearGroupCount * 3) + 1;
 
-    // Header row: DATE | Vehicle Name | 2025 [L][A][U] | 2024 [L][A][U] | ...
-    html += '<thead><tr>';
-    html += '<th style="width:80px;background:#1f2937;color:white;border:1px solid #374151;">DATE</th>';
-    html += '<th style="text-align:left;background:#1f2937;color:white;border:1px solid #374151;min-width:180px;">VEHICLE NAME</th>';
+    var html = '<div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:0.72rem;width:100%;min-width:1600px;">';
 
-    years.forEach(function(year) {
-        html += '<th colspan="3" style="background:#1f2937;color:white;border-left:2px solid #4b5563;border:1px solid #374151;text-align:center;">' + year + '</th>';
-    });
-    html += '<th style="background:#1f2937;color:white;border:1px solid #374151;text-align:center;">TOTAL UNITS</th>';
+    // === ROW 1: TITLE ===
+    var dataTotalCols = yearGroupCount * 3; // all data columns (years * 3)
+    html += '<tr>';
+    html += '<td style="background:#1f2937;color:white;font-weight:700;padding:8px 12px;border:1px solid ' + hdrBorder + ';white-space:nowrap;">DATE: ' + formattedDate + '</td>';
+    html += '<td colspan="' + dataTotalCols + '" style="background:white;text-align:center;font-size:1.3rem;font-weight:800;letter-spacing:6px;padding:10px;border:1px solid ' + cellBorder + ';">D E P R E C I A T I O N &nbsp; / &nbsp; U N I T S</td>';
+    html += '<td style="background:white;border:1px solid ' + cellBorder + ';"></td>';
     html += '</tr>';
 
-    // Sub-header: [LOWEST] [AVERAGE] [UNIT] for each year
+    // === ROW 2: YEAR HEADERS ===
     html += '<tr>';
-    html += '<th style="background:#374151;color:white;border:1px solid #4b5563;"></th>';
-    html += '<th style="background:#374151;color:white;border:1px solid #4b5563;"></th>';
+    html += '<td rowspan="2" style="background:' + hdrBg + ';color:white;font-weight:700;padding:6px 8px;border:1px solid ' + hdrBorder + ';text-align:center;vertical-align:middle;min-width:160px;"></td>';
     years.forEach(function(year) {
-        html += '<th style="background:#374151;color:white;border:1px solid #4b5563;text-align:center;font-size:0.7rem;">LOWEST</th>';
-        html += '<th style="background:#374151;color:white;border:1px solid #4b5563;text-align:center;font-size:0.7rem;">AVERAGE</th>';
-        html += '<th style="background:#374151;color:white;border:1px solid #4b5563;text-align:center;font-size:0.7rem;">UNIT</th>';
+        html += '<td colspan="3" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:6px 2px;border:1px solid ' + hdrBorder + ';border-left:2px solid ' + hdrBorder + ';">' + year + '</td>';
     });
-    html += '<th style="background:#374151;color:white;border:1px solid #4b5563;"></th>';
-    html += '</tr></thead>';
+    html += '<td colspan="3" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:6px 2px;border:1px solid ' + hdrBorder + ';border-left:2px solid ' + hdrBorder + ';white-space:nowrap;">2014 &amp; Older</td>';
+    html += '<td rowspan="2" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:6px 4px;border:1px solid ' + hdrBorder + ';vertical-align:middle;white-space:nowrap;">TOTAL<br>UNITS</td>';
+    html += '</tr>';
 
-    html += '<tbody>';
+    // === ROW 3: SUB-HEADERS (Lowest / Average / Unit) ===
+    html += '<tr>';
+    for (var i = 0; i < yearGroupCount; i++) {
+        html += '<td style="background:' + subHdrBg + ';color:' + subHdrColor + ';font-weight:600;text-align:center;padding:3px 1px;border:1px solid ' + cellBorder + ';font-size:0.62rem;border-left:2px solid ' + cellBorder + ';">Lowest</td>';
+        html += '<td style="background:' + subHdrBg + ';color:' + subHdrColor + ';font-weight:600;text-align:center;padding:3px 1px;border:1px solid ' + cellBorder + ';font-size:0.62rem;">Average</td>';
+        html += '<td style="background:' + unitColBg + ';color:' + subHdrColor + ';font-weight:600;text-align:center;padding:3px 1px;border:1px solid ' + cellBorder + ';font-size:0.62rem;"></td>';
+    }
+    html += '</tr>';
 
-    // Iterate through categories
+    // === DATA ROWS ===
     for (var category in categories) {
         if (!categories.hasOwnProperty(category)) continue;
 
-        // Category header row
-        html += '<tr class="category-row">';
-        html += '<td colspan="' + totalColSpan + '" style="background:#1a5f2a;color:white;font-weight:700;padding:10px 14px;text-align:left;border:1px solid #145221;">';
-        html += category;
-        html += '</td></tr>';
+        // Category header
+        html += '<tr>';
+        html += '<td colspan="' + catColSpan + '" style="background:' + catBg + ';color:white;font-weight:700;padding:7px 14px;text-align:left;border:1px solid ' + catBorder + ';font-size:0.8rem;letter-spacing:0.5px;">' + category + '</td>';
+        html += '</tr>';
 
-        // Models in this category
         var models = categories[category];
+        var rowIdx = 0;
         models.forEach(function(vehicle) {
             var vehicleData = data[vehicle] || {};
+            var rowBg = rowIdx % 2 === 0 ? '#FFFFFF' : '#F2F7FC';
+            rowIdx++;
 
-            html += '<tr style="background:#f9fafb;">';
-            html += '<td style="text-align:center;border:1px solid #e5e7eb;font-size:0.75rem;">' + formattedDate + '</td>';
-            html += '<td style="text-align:left;font-weight:500;border:1px solid #e5e7eb;">' + vehicle + '</td>';
+            html += '<tr style="background:' + rowBg + ';">';
+            html += '<td style="text-align:left;font-weight:600;padding:4px 8px;border:1px solid ' + cellBorder + ';white-space:nowrap;">' + vehicle + '</td>';
 
             var totalUnits = 0;
-            years.forEach(function(year) {
-                var yearData = vehicleData[year];
-                if (yearData) {
-                    var lowest = yearData.lowest ? '$' + yearData.lowest.toLocaleString() : '–';
-                    var average = yearData.average ? '$' + yearData.average.toLocaleString() : '–';
-                    var unit = yearData.unit || 0;
-                    totalUnits += unit;
 
-                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">' + lowest + '</td>';
-                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">' + average + '</td>';
-                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">' + unit + '</td>';
+            // Helper to render one year group (3 cells)
+            function renderYearGroup(yearData) {
+                if (yearData && (yearData.lowest || yearData.unit)) {
+                    var lo = yearData.lowest ? '$' + yearData.lowest.toLocaleString() : emptyCell;
+                    var av = yearData.average ? '$' + yearData.average.toLocaleString() : emptyCell;
+                    var un = yearData.unit || 0;
+                    totalUnits += un;
+                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';border-left:2px solid ' + cellBorder + ';font-size:0.71rem;">' + lo + '</td>';
+                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';font-size:0.71rem;background:' + avgColBg + ';">' + av + '</td>';
+                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';font-size:0.71rem;background:' + unitColBg + ';font-weight:600;">' + un + '</td>';
                 } else {
-                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">–</td>';
-                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">–</td>';
-                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">0</td>';
+                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';border-left:2px solid ' + cellBorder + ';color:#ccc;">' + emptyCell + '</td>';
+                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';background:' + avgColBg + ';color:#ccc;">' + emptyCell + '</td>';
+                    html += '<td style="text-align:center;padding:3px 2px;border:1px solid ' + cellBorder + ';background:' + unitColBg + ';color:#ccc;">' + emptyCell + '</td>';
                 }
+            }
+
+            // Regular years
+            years.forEach(function(year) {
+                var yd = vehicleData[year] || vehicleData[String(year)];
+                renderYearGroup(yd);
             });
 
-            html += '<td style="text-align:center;font-weight:600;border:1px solid #e5e7eb;">' + totalUnits + '</td>';
+            // "2014 & Older"
+            var olderData = vehicleData[OLDER_KEY] || vehicleData[parseInt(OLDER_KEY)];
+            renderYearGroup(olderData);
+
+            // Total Units
+            html += '<td style="text-align:center;font-weight:700;padding:4px 6px;border:1px solid ' + cellBorder + ';background:#E2EFDA;font-size:0.8rem;">' + totalUnits + '</td>';
             html += '</tr>';
         });
     }
 
-    html += '</tbody></table>';
+    html += '</table></div>';
     return html;
 }
 

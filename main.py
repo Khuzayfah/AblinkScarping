@@ -710,9 +710,24 @@ async def get_depreciation_by_year(
         result[model][year]['values'].append(dep_value)
         result[model][year]['count'] += 1
 
+    # Merge years <= 2014 into "2014 & Older"
+    OLDEST_YEAR_LABEL = "2014"  # Will be displayed as "2014 & Older" on frontend
+    merged = {}
+    for model, years_data in result.items():
+        merged[model] = {}
+        for year, data in years_data.items():
+            if isinstance(year, int) and year <= 2014:
+                key = OLDEST_YEAR_LABEL
+            else:
+                key = year
+            if key not in merged[model]:
+                merged[model][key] = {'values': [], 'count': 0}
+            merged[model][key]['values'].extend(data['values'])
+            merged[model][key]['count'] += data['count']
+
     # Calculate lowest, average, unit for each year
     final = {}
-    for model, years_data in result.items():
+    for model, years_data in merged.items():
         final[model] = {}
         for year, data in years_data.items():
             values = data['values']
