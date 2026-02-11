@@ -519,10 +519,391 @@
         }
         .data-log-header.log-sold h4 { color: #991b1b; }
 
+        /* ═══════════════════════════════════════════════════════════
+           TABLET BREAKPOINT (768px - 1024px)
+           ═══════════════════════════════════════════════════════════ */
+        @media (max-width: 1024px) {
+            .main-container {
+                margin: 12px;
+                border-radius: 12px;
+            }
+            .controls-panel {
+                padding: 20px 24px;
+            }
+            .header {
+                padding: 20px 24px;
+            }
+            .header h1 {
+                font-size: 1.4rem;
+            }
+            .data-log-header {
+                padding: 12px 20px;
+            }
+            .data-log-body {
+                padding: 12px 16px 20px 16px;
+            }
+            #soldLogContent {
+                padding: 12px 16px 20px 16px;
+            }
+            .export-bar {
+                padding: 12px 20px;
+            }
+            .guide-body {
+                padding: 20px 24px;
+            }
+            .guide-header {
+                padding: 16px 24px;
+            }
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           MOBILE BREAKPOINT (< 768px) - Complete mobile UX
+           ═══════════════════════════════════════════════════════════ */
         @media (max-width: 768px) {
-            .header { flex-direction: column; text-align: center; }
-            .schedule-row { flex-direction: column; align-items: flex-start; }
-            .debug-controls { flex-direction: column; }
+            body {
+                background: #f0f2f5;
+                font-size: 14px;
+            }
+            .container-fluid {
+                padding: 0 !important;
+            }
+            .main-container {
+                margin: 0;
+                border-radius: 0;
+                border: none;
+                box-shadow: none;
+            }
+
+            /* ── Header ── */
+            .header {
+                flex-direction: column;
+                text-align: center;
+                padding: 16px 16px;
+                gap: 10px;
+            }
+            .header-icon {
+                width: 40px;
+                height: 40px;
+                font-size: 1.2rem;
+                border-radius: 10px;
+            }
+            .header h1 {
+                font-size: 1.2rem;
+            }
+            .header p {
+                font-size: 0.78rem;
+            }
+
+            /* ── Controls Panel ── */
+            .controls-panel {
+                padding: 16px;
+            }
+            .section-title {
+                font-size: 0.85rem;
+                margin-bottom: 12px;
+            }
+            .btn-refresh {
+                width: 100%;
+                padding: 12px 20px;
+                font-size: 0.95rem;
+                border-radius: 12px;
+            }
+            .status-badge {
+                font-size: 0.78rem;
+                padding: 4px 10px;
+            }
+            .last-scrape {
+                font-size: 0.78rem;
+            }
+            .schedule-row {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 8px;
+                margin-top: 16px;
+            }
+            .schedule-row label {
+                font-size: 0.85rem;
+            }
+            .schedule-row input[type="time"] {
+                width: 100%;
+                padding: 10px 12px;
+                font-size: 0.95rem;
+            }
+            .btn-schedule {
+                width: 100%;
+                padding: 10px;
+                font-size: 0.9rem;
+            }
+            .current-schedule {
+                font-size: 0.85rem;
+                text-align: center;
+            }
+
+            /* ── Calendar Navigation ── */
+            .calendar-nav {
+                flex-direction: column;
+                padding: 10px 12px;
+                gap: 8px;
+                align-items: stretch;
+            }
+            .calendar-nav > .btn-nav {
+                display: none;
+            }
+            .calendar-nav .date-display {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 6px;
+                font-size: 0.9rem;
+            }
+            .calendar-nav .date-display strong {
+                font-size: 1rem;
+                display: block;
+                width: 100%;
+                text-align: center;
+            }
+            .calendar-nav .date-display input[type="date"] {
+                width: 100%;
+                padding: 8px;
+                font-size: 0.9rem;
+            }
+            .calendar-nav .nav-actions {
+                margin-left: 0;
+                width: 100%;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 6px;
+            }
+            .calendar-nav .nav-actions .btn {
+                font-size: 0.78rem;
+                padding: 8px 6px;
+            }
+            .calendar-nav .nav-actions .form-select {
+                grid-column: 1 / -1;
+                width: 100% !important;
+                font-size: 0.85rem;
+            }
+
+            /* ── Mobile date nav arrows ── */
+            .mobile-nav-arrows {
+                display: flex !important;
+                justify-content: center;
+                gap: 12px;
+            }
+
+            /* ── Data Tables ── */
+            .data-table {
+                font-size: 0.78rem;
+            }
+            .data-table thead th {
+                padding: 8px 5px;
+                font-size: 0.72rem;
+            }
+            .data-table thead th.vehicle-col {
+                min-width: 120px;
+            }
+            .data-table tbody td {
+                padding: 7px 4px;
+            }
+            .data-table tbody td.no-col {
+                width: 30px;
+            }
+            .data-table tbody tr.category-row td {
+                font-size: 0.82rem;
+                padding: 8px 10px;
+            }
+
+            /* ── Sold Log Table ── */
+            .sold-log-table thead th {
+                padding: 8px 4px;
+                font-size: 0.75rem;
+            }
+            .sold-log-table thead th.vehicle-col {
+                min-width: 130px;
+            }
+            .sold-log-table tbody td {
+                padding: 6px 4px;
+                font-size: 0.78rem;
+            }
+
+            /* ── Export Bar ── */
+            .export-bar {
+                padding: 10px 12px;
+                justify-content: center;
+            }
+            .export-bar .btn {
+                flex: 1;
+                min-width: 0;
+                font-size: 0.78rem;
+                padding: 8px 10px;
+            }
+
+            /* ── Collapsible Sections ── */
+            .data-log-header {
+                padding: 12px 12px;
+            }
+            .data-log-header h4 {
+                font-size: 0.82rem;
+                gap: 5px;
+                flex-wrap: wrap;
+            }
+            .data-log-header .badge {
+                font-size: 0.65rem;
+            }
+            .data-log-header small {
+                display: none;
+            }
+            .data-log-body {
+                padding: 10px 8px 16px 8px;
+            }
+            .data-log-body .d-flex {
+                flex-direction: column;
+                gap: 6px !important;
+            }
+            .data-log-body .ms-auto {
+                margin-left: 0 !important;
+                width: 100%;
+            }
+            .data-log-body .ms-auto .d-flex {
+                flex-direction: row;
+                width: 100%;
+            }
+            .data-log-body .ms-auto .btn {
+                flex: 1;
+                font-size: 0.75rem;
+                padding: 6px 4px;
+            }
+
+            /* ── Sold Log Content ── */
+            #soldLogContent {
+                padding: 10px 8px 16px 8px;
+            }
+            .sold-log-header {
+                padding: 12px 12px;
+            }
+            .sold-log-header h3 {
+                font-size: 0.9rem;
+            }
+
+            /* ── Guide Section ── */
+            .guide-header {
+                padding: 14px 12px;
+            }
+            .guide-header h3 {
+                font-size: 0.88rem;
+                gap: 5px;
+            }
+            .guide-header small {
+                display: none;
+            }
+            .guide-body {
+                padding: 16px 12px;
+            }
+            .guide-body h4 {
+                font-size: 0.88rem;
+            }
+            .guide-body p, .guide-body li {
+                font-size: 0.8rem;
+                line-height: 1.6;
+            }
+            .guide-flow {
+                flex-direction: column;
+                gap: 8px;
+            }
+            .guide-flow-step {
+                min-width: 0;
+                padding: 12px;
+            }
+            .guide-flow-step i.step-icon {
+                font-size: 1.4rem;
+            }
+            .guide-flow-step .step-title {
+                font-size: 0.8rem;
+            }
+            .guide-flow-step .step-desc {
+                font-size: 0.72rem;
+            }
+            .guide-flow-arrow {
+                justify-content: center;
+                padding: 0;
+                font-size: 1.2rem;
+                transform: rotate(90deg);
+            }
+            .guide-note {
+                font-size: 0.78rem;
+                padding: 10px 12px;
+            }
+
+            /* ── Empty State ── */
+            .empty-state {
+                padding: 30px 16px;
+            }
+            .empty-state i {
+                font-size: 2rem;
+            }
+            .empty-state h4 {
+                font-size: 1rem;
+            }
+            .empty-state p {
+                font-size: 0.85rem;
+            }
+
+            /* ── Loading ── */
+            .loading-spinner {
+                padding: 24px;
+            }
+
+            /* ── Toast ── */
+            .toast-container {
+                left: 8px;
+                right: 8px;
+                bottom: 8px;
+            }
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           SMALL MOBILE (< 480px) - Extra compact
+           ═══════════════════════════════════════════════════════════ */
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 1.05rem;
+            }
+            .header p {
+                font-size: 0.72rem;
+            }
+            .btn-refresh {
+                padding: 10px 16px;
+                font-size: 0.88rem;
+            }
+            .data-table {
+                font-size: 0.72rem;
+            }
+            .data-table thead th {
+                padding: 6px 3px;
+                font-size: 0.68rem;
+            }
+            .data-table tbody td {
+                padding: 5px 3px;
+            }
+            .data-table thead th.vehicle-col {
+                min-width: 90px;
+            }
+            .sold-log-table thead th {
+                font-size: 0.68rem;
+                padding: 6px 3px;
+            }
+            .sold-log-table thead th.vehicle-col {
+                min-width: 100px;
+            }
+            .sold-log-table tbody td {
+                font-size: 0.72rem;
+                padding: 5px 3px;
+            }
+            .data-log-header h4 {
+                font-size: 0.75rem;
+            }
+            .calendar-nav .nav-actions {
+                grid-template-columns: 1fr 1fr;
+            }
         }
     </style>
 </head>
@@ -582,8 +963,14 @@
                             <span class="badge bg-success" id="soldCountBadge" style="display:none;">0 sold</span>
                         </div>
                         <button class="btn btn-sm btn-nav" onclick="navDate(1)" title="Next day"><i class="bi bi-chevron-right"></i></button>
+                        <!-- Mobile-only date navigation arrows -->
+                        <div class="mobile-nav-arrows" style="display:none;">
+                            <button class="btn btn-sm btn-outline-success" onclick="navDate(-1)"><i class="bi bi-chevron-left"></i> Prev</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="navToday()"><i class="bi bi-calendar-check"></i> Today</button>
+                            <button class="btn btn-sm btn-outline-success" onclick="navDate(1)">Next <i class="bi bi-chevron-right"></i></button>
+                        </div>
                         <div class="nav-actions">
-                            <button class="btn btn-sm btn-outline-secondary" onclick="navToday()" title="Go to today"><i class="bi bi-calendar-check"></i> Today</button>
+                            <button class="btn btn-sm btn-outline-secondary d-none d-md-inline-block" onclick="navToday()" title="Go to today"><i class="bi bi-calendar-check"></i> Today</button>
                             <select class="form-select form-select-sm" id="historySelect" style="width:auto;" onchange="onHistorySelect()">
                                 <option value="">History</option>
                             </select>
