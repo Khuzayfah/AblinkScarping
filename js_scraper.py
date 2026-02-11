@@ -22,32 +22,34 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 BQ = '\\"'
 
 # Search keywords for commercial vehicles
-# Truck/lorry keywords (no special filter needed)
+# 10FT DIESEL + 14FT DIESEL keywords
 SEARCH_KEYWORDS_TRUCK = [
-    "Hino Dutro",
-    "Hino XZU",
-    "Toyota Dyna",
+    "Hino Dutro 2.8",
+    "Hino XZU710",
+    "Toyota Dyna 2.8",
+    "Toyota Dyna 3.0",
     "Nissan Cabstar",
-    "Isuzu NPR",
-    "Isuzu NMR",
-    "Isuzu NNR",
+    "Isuzu NPR85",
+    "Isuzu NMR85",
+    "Isuzu NNR85",
     "Isuzu NHR",
     "Isuzu NJR",
-    "Mitsubishi Fuso",
-    "Mitsubishi FEA",
-    "Mitsubishi FEB",
-    "Kia K2500",
+    "Mitsubishi FEA01",
+    "Mitsubishi FEB21",
+    "Kia 2500",
 ]
 
-# Van keywords - search with "Goods Van" filter to get commercial goods vans only
+# VAN DIESEL + VAN PETROL keywords (FILTER: GOODS VAN)
 SEARCH_KEYWORDS_VAN = [
-    "Toyota Hiace Goods Van",
+    "Toyota Hiace 3.0 Goods Van",
+    "Toyota Hiace 2.8 Goods Van",
+    "Toyota Hiace 2.0 Goods Van",
     "Nissan NV350 Goods Van",
     "Nissan NV200 Goods Van",
     "Honda N-VAN Goods Van",
 ]
 
-# Combined list for backward compatibility
+# Combined list
 SEARCH_KEYWORDS = SEARCH_KEYWORDS_TRUCK + SEARCH_KEYWORDS_VAN
 
 
