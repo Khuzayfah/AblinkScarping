@@ -5,13 +5,17 @@ A comprehensive web scraping system for tracking commercial vehicle listings on 
 ## 🚀 Features
 
 - **Automated Web Scraping**: Scrapes SGCarMart for commercial vehicles (Hiace, Dyna, Hino Dutro, NV350, etc.)
-- **Cloudflare Bypass**: Uses undetected-playwright for reliable scraping
+- **Cloudflare Bypass**: Uses curl_cffi with Chrome impersonation for reliable scraping
 - **Daily Reports**: Generates comprehensive daily reports with vehicle listings
-- **Sold Vehicle Detection**: Tracks when vehicles are sold and logs them
+- **Sold Vehicle Detection**: Tracks when vehicles are sold and logs them (comparison method)
+- **📊 NEW: Depreciation/Units Table by Year**: View LOWEST, AVERAGE, and UNIT counts for each registration year
+  - Separate tables for Active Listings and Sold Listings
+  - Grouped by category (VAN DIESEL, VAN PETROL, 10FT DIESEL, 14FT DIESEL)
+  - Interactive date selection and collapsible sections
 - **Web Dashboard**: FastAPI-powered web interface for viewing data
 - **Data Export**: Export to CSV, Excel, and PDF formats
 - **Scheduler**: Automated daily scraping at configured times
-- **Private Seller Detection**: Identifies "Direct Owner" listings
+- **ListingCache**: Caches depreciation/price data from active listings for sold lookup
 - **Aligned Data Display**: Year, depreciation, and dealer names are perfectly aligned with comma separators
 
 ## 📊 Tracked Vehicles
