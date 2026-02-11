@@ -11,7 +11,7 @@ from collections import defaultdict
 import os
 from contextlib import asynccontextmanager
 
-from database import init_db, get_db, VehicleListing, DailyReport, ScrapeLog, AppSetting, SoldLog, SgcarmartSold
+from database import init_db, get_db, VehicleListing, DailyReport, ScrapeLog, AppSetting, SoldLog, SgcarmartSold, ListingCache
 from js_scraper import SGCarMartJSScraper
 from export_service import ExportService
 from scheduler import ScraperScheduler
@@ -617,7 +617,6 @@ async def get_depreciation_by_year(
     Returns: {model_name: {year: {lowest, average, unit}}}
     """
     import re
-    from database import ListingCache, SgcarmartSold
 
     if date:
         try:
