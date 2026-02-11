@@ -95,6 +95,15 @@ async def health_check():
         "next_scheduled_scrape": next_run.isoformat() if next_run else None
     }
 
+
+@app.get("/api/vehicle-categories")
+async def get_vehicle_categories():
+    """Get vehicle categories and models from config"""
+    return {
+        "categories": config.VEHICLE_CATEGORIES,
+        "target_vehicles": config.TARGET_VEHICLES
+    }
+
 @app.post("/api/scrape")
 async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Trigger manual scraping (Refresh Data)"""
@@ -564,23 +573,23 @@ async def export_pdf(date: Optional[str] = None, db: Session = Depends(get_db)):
 async def get_statistics(db: Session = Depends(get_db)):
     """Get overall statistics"""
     total_listings = db.query(VehicleListing).count()
-    
+
     # Get date range
     date_range = db.query(
         func.min(VehicleListing.scrape_date).label('first_date'),
         func.max(VehicleListing.scrape_date).label('last_date')
     ).first()
-    
+
     # Get unique models count
     unique_models = db.query(VehicleListing.make_model).distinct().count()
-    
+
     # Get price statistics
     price_stats = db.query(
         func.avg(VehicleListing.price).label('avg_price'),
         func.min(VehicleListing.price).label('min_price'),
         func.max(VehicleListing.price).label('max_price')
     ).first()
-    
+
     return {
         "total_listings": total_listings,
         "unique_models": unique_models,
@@ -593,6 +602,107 @@ async def get_statistics(db: Session = Depends(get_db)):
             "minimum": float(price_stats.min_price) if price_stats.min_price else 0,
             "maximum": float(price_stats.max_price) if price_stats.max_price else 0
         }
+    }
+
+
+@app.get("/api/depreciation-by-year")
+async def get_depreciation_by_year(
+    date: Optional[str] = None,
+    source: str = "active",
+    db: Session = Depends(get_db)
+):
+    """Get depreciation aggregated by year and model
+    source: 'active' (VehicleListing) or 'sold' (SoldLog)
+    Returns: {model_name: {year: {lowest, average, unit}}}
+    """
+    import re
+
+    if date:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            next_date = target_date + timedelta(days=1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        target_date = datetime.now().date()
+        next_date = target_date + timedelta(days=1)
+
+    # Query based on source
+    if source == "sold":
+        rows = db.query(SoldLog).filter(
+            and_(
+                SoldLog.sold_date >= datetime.combine(target_date, datetime.min.time()),
+                SoldLog.sold_date < datetime.combine(next_date, datetime.min.time())
+            )
+        ).all()
+        year_field = 'year_registered'
+    else:  # active
+        rows = db.query(VehicleListing).filter(
+            and_(
+                VehicleListing.scrape_date >= target_date,
+                VehicleListing.scrape_date < next_date
+            )
+        ).all()
+        year_field = 'registered_year'
+
+    # Parse depreciation string to number
+    def parse_depreciation(dep_str):
+        """Extract numeric value from depreciation string like '$16,890/yr' -> 16890"""
+        if not dep_str:
+            return None
+        # Remove $ and /yr, extract numbers
+        match = re.search(r'[\d,]+', str(dep_str))
+        if match:
+            num_str = match.group(0).replace(',', '')
+            try:
+                return int(num_str)
+            except:
+                return None
+        return None
+
+    # Aggregate by model and year
+    result = {}
+    for row in rows:
+        model = _normalize_model(row.make_model)
+        if not model:
+            continue
+
+        year = getattr(row, year_field)
+        if not year:
+            continue
+
+        dep_value = parse_depreciation(row.depreciation)
+        if dep_value is None:
+            continue
+
+        if model not in result:
+            result[model] = {}
+
+        if year not in result[model]:
+            result[model][year] = {
+                'values': [],
+                'count': 0
+            }
+
+        result[model][year]['values'].append(dep_value)
+        result[model][year]['count'] += 1
+
+    # Calculate lowest, average, unit for each year
+    final = {}
+    for model, years_data in result.items():
+        final[model] = {}
+        for year, data in years_data.items():
+            values = data['values']
+            final[model][year] = {
+                'lowest': min(values) if values else 0,
+                'average': int(sum(values) / len(values)) if values else 0,
+                'unit': len(values)
+            }
+
+    return {
+        "date": target_date.isoformat(),
+        "source": source,
+        "data": final
     }
 
 

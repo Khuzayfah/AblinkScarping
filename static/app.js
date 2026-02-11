@@ -465,6 +465,193 @@ function exportSgcarmartSoldCsv() {
     showNotification('Downloading SGCarMart Sold CSV...');
 }
 
+// Toggle depreciation tables
+function toggleActiveDepreciationTable() {
+    var body = document.getElementById('activeDepreciationBody');
+    var icon = document.getElementById('activeDepreciationIcon');
+    var isHidden = body.style.display === 'none';
+    body.style.display = isHidden ? 'block' : 'none';
+    icon.className = isHidden ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
+}
+
+function toggleSoldDepreciationTable() {
+    var body = document.getElementById('soldDepreciationBody');
+    var icon = document.getElementById('soldDepreciationIcon');
+    var isHidden = body.style.display === 'none';
+    body.style.display = isHidden ? 'block' : 'none';
+    icon.className = isHidden ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
+}
+
+// Build depreciation table like screenshot with category grouping
+function buildDepreciationTable(data, categories, dateStr) {
+    // Get all years from all vehicles
+    var allYears = new Set();
+    for (var model in data) {
+        if (data.hasOwnProperty(model)) {
+            for (var year in data[model]) {
+                allYears.add(parseInt(year));
+            }
+        }
+    }
+    var years = Array.from(allYears).sort().reverse(); // 2025, 2024, 2023...
+
+    if (years.length === 0) {
+        return '<div class="sold-log-empty">No data available for this date.</div>';
+    }
+
+    // Format date nicely: "9 DEC"
+    var dateParts = dateStr.split('-'); // 2026-02-09
+    var d = new Date(dateStr + 'T00:00:00');
+    var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    var formattedDate = d.getDate() + ' ' + months[d.getMonth()];
+
+    var yearColSpan = years.length * 3; // 3 columns per year (L, A, U)
+    var totalColSpan = yearColSpan + 3; // +3 for DATE + VEHICLE NAME + TOTAL UNITS
+
+    var html = '<table class="table data-table" style="font-size:0.75rem;">';
+
+    // Header row: DATE | Vehicle Name | 2025 [L][A][U] | 2024 [L][A][U] | ...
+    html += '<thead><tr>';
+    html += '<th style="width:80px;background:#1f2937;color:white;border:1px solid #374151;">DATE</th>';
+    html += '<th style="text-align:left;background:#1f2937;color:white;border:1px solid #374151;min-width:180px;">VEHICLE NAME</th>';
+
+    years.forEach(function(year) {
+        html += '<th colspan="3" style="background:#1f2937;color:white;border-left:2px solid #4b5563;border:1px solid #374151;text-align:center;">' + year + '</th>';
+    });
+    html += '<th style="background:#1f2937;color:white;border:1px solid #374151;text-align:center;">TOTAL UNITS</th>';
+    html += '</tr>';
+
+    // Sub-header: [LOWEST] [AVERAGE] [UNIT] for each year
+    html += '<tr>';
+    html += '<th style="background:#374151;color:white;border:1px solid #4b5563;"></th>';
+    html += '<th style="background:#374151;color:white;border:1px solid #4b5563;"></th>';
+    years.forEach(function(year) {
+        html += '<th style="background:#374151;color:white;border:1px solid #4b5563;text-align:center;font-size:0.7rem;">LOWEST</th>';
+        html += '<th style="background:#374151;color:white;border:1px solid #4b5563;text-align:center;font-size:0.7rem;">AVERAGE</th>';
+        html += '<th style="background:#374151;color:white;border:1px solid #4b5563;text-align:center;font-size:0.7rem;">UNIT</th>';
+    });
+    html += '<th style="background:#374151;color:white;border:1px solid #4b5563;"></th>';
+    html += '</tr></thead>';
+
+    html += '<tbody>';
+
+    // Iterate through categories
+    for (var category in categories) {
+        if (!categories.hasOwnProperty(category)) continue;
+
+        // Category header row
+        html += '<tr class="category-row">';
+        html += '<td colspan="' + totalColSpan + '" style="background:#1a5f2a;color:white;font-weight:700;padding:10px 14px;text-align:left;border:1px solid #145221;">';
+        html += category;
+        html += '</td></tr>';
+
+        // Models in this category
+        var models = categories[category];
+        models.forEach(function(vehicle) {
+            var vehicleData = data[vehicle] || {};
+
+            html += '<tr style="background:#f9fafb;">';
+            html += '<td style="text-align:center;border:1px solid #e5e7eb;font-size:0.75rem;">' + formattedDate + '</td>';
+            html += '<td style="text-align:left;font-weight:500;border:1px solid #e5e7eb;">' + vehicle + '</td>';
+
+            var totalUnits = 0;
+            years.forEach(function(year) {
+                var yearData = vehicleData[year];
+                if (yearData) {
+                    var lowest = yearData.lowest ? '$' + yearData.lowest.toLocaleString() : '–';
+                    var average = yearData.average ? '$' + yearData.average.toLocaleString() : '–';
+                    var unit = yearData.unit || 0;
+                    totalUnits += unit;
+
+                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">' + lowest + '</td>';
+                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">' + average + '</td>';
+                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">' + unit + '</td>';
+                } else {
+                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">–</td>';
+                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">–</td>';
+                    html += '<td style="text-align:center;border:1px solid #e5e7eb;">0</td>';
+                }
+            });
+
+            html += '<td style="text-align:center;font-weight:600;border:1px solid #e5e7eb;">' + totalUnits + '</td>';
+            html += '</tr>';
+        });
+    }
+
+    html += '</tbody></table>';
+    return html;
+}
+
+// Load active listings depreciation table
+async function loadActiveDepreciationTable() {
+    var dateInput = document.getElementById('activeDepreciationDate');
+    var date = dateInput && dateInput.value ? dateInput.value : '';
+    if (!date) {
+        showNotification('Please select a date', true);
+        return;
+    }
+
+    var container = document.getElementById('activeDepreciationContainer');
+    container.innerHTML = '<div class="sold-log-empty">Loading...</div>';
+
+    try {
+        // Fetch depreciation data and categories in parallel
+        var [depRes, catRes] = await Promise.all([
+            fetch('/api/depreciation-by-year?date=' + date + '&source=active'),
+            fetch('/api/vehicle-categories')
+        ]);
+
+        if (!depRes.ok || !catRes.ok) throw new Error('Failed to load data');
+
+        var result = await depRes.json();
+        var categories = await catRes.json();
+
+        if (Object.keys(result.data).length === 0) {
+            container.innerHTML = '<div class="sold-log-empty">No depreciation data for this date.</div>';
+            return;
+        }
+
+        container.innerHTML = buildDepreciationTable(result.data, categories.categories, date);
+    } catch (e) {
+        container.innerHTML = '<div class="sold-log-empty">Error loading depreciation table: ' + e.message + '</div>';
+    }
+}
+
+// Load sold listings depreciation table
+async function loadSoldDepreciationTable() {
+    var dateInput = document.getElementById('soldDepreciationDate');
+    var date = dateInput && dateInput.value ? dateInput.value : '';
+    if (!date) {
+        showNotification('Please select a date', true);
+        return;
+    }
+
+    var container = document.getElementById('soldDepreciationContainer');
+    container.innerHTML = '<div class="sold-log-empty">Loading...</div>';
+
+    try {
+        // Fetch depreciation data and categories in parallel
+        var [depRes, catRes] = await Promise.all([
+            fetch('/api/depreciation-by-year?date=' + date + '&source=sold'),
+            fetch('/api/vehicle-categories')
+        ]);
+
+        if (!depRes.ok || !catRes.ok) throw new Error('Failed to load data');
+
+        var result = await depRes.json();
+        var categories = await catRes.json();
+
+        if (Object.keys(result.data).length === 0) {
+            container.innerHTML = '<div class="sold-log-empty">No sold depreciation data for this date.</div>';
+            return;
+        }
+
+        container.innerHTML = buildDepreciationTable(result.data, categories.categories, date);
+    } catch (e) {
+        container.innerHTML = '<div class="sold-log-empty">Error loading sold depreciation table: ' + e.message + '</div>';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     loadStatus();
     var today = new Date().toISOString().slice(0, 10);
@@ -474,6 +661,11 @@ document.addEventListener('DOMContentLoaded', function () {
     // Set default dates for log sections
     var activeDate = document.getElementById('activeLogDate');
     if (activeDate) activeDate.value = today;
+    // Set default dates for depreciation tables
+    var activeDepDate = document.getElementById('activeDepreciationDate');
+    if (activeDepDate) activeDepDate.value = today;
+    var soldDepDate = document.getElementById('soldDepreciationDate');
+    if (soldDepDate) soldDepDate.value = today;
     // Load stats for badges
     loadActiveLogCount(today);
     loadSgcarmartSoldCount();

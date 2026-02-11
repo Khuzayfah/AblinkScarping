@@ -603,6 +603,48 @@
                 <button class="btn btn-outline-danger btn-sm" onclick="exportData('pdf')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
             </div>
 
+            <!-- Depreciation / Units Table: Active Listings -->
+            <div class="data-log-section">
+                <div class="data-log-header log-active" onclick="toggleActiveDepreciationTable()">
+                    <h4>
+                        <i class="bi bi-chevron-right" id="activeDepreciationIcon"></i>
+                        <i class="bi bi-graph-up"></i> Active Listings - Depreciation / Units by Year
+                    </h4>
+                    <small class="text-muted">Click to expand</small>
+                </div>
+                <div id="activeDepreciationBody" class="data-log-body" style="display:none;">
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <label class="mb-0 small fw-bold">Date:</label>
+                        <input type="date" id="activeDepreciationDate">
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadActiveDepreciationTable()">Load</button>
+                    </div>
+                    <div id="activeDepreciationContainer" style="overflow-x:auto;">
+                        <div class="sold-log-empty">Select a date and click Load.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Depreciation / Units Table: Sold Listings -->
+            <div class="data-log-section">
+                <div class="data-log-header log-sold" onclick="toggleSoldDepreciationTable()">
+                    <h4>
+                        <i class="bi bi-chevron-right" id="soldDepreciationIcon"></i>
+                        <i class="bi bi-graph-down"></i> Sold Listings - Depreciation / Units by Year
+                    </h4>
+                    <small class="text-muted">Click to expand</small>
+                </div>
+                <div id="soldDepreciationBody" class="data-log-body" style="display:none;">
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <label class="mb-0 small fw-bold">Date:</label>
+                        <input type="date" id="soldDepreciationDate">
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadSoldDepreciationTable()">Load</button>
+                    </div>
+                    <div id="soldDepreciationContainer" style="overflow-x:auto;">
+                        <div class="sold-log-empty">Select a date and click Load.</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Data Logs: Active Listings + Sold Log (collapsed by default) -->
             <div class="data-log-section">
                 <div class="data-log-header log-active" onclick="toggleActiveLog()">
