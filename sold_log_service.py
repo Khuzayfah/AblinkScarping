@@ -134,10 +134,7 @@ def detect_and_log_sold():
 
             dep = (row.depreciation or "").strip()
             if not dep or dep == "–":
-                if row.price is not None:
-                    dep = f"${row.price:,.0f}"
-                else:
-                    dep = "–"
+                dep = "–"
 
             db.add(SoldLog(
                 sold_date=today_start,

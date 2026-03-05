@@ -675,9 +675,15 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
     if source == "sold":
         rows = db.query(SgcarmartSold).all()
         year_field = 'year_registered'
+        # Cache map keyed by listing_url_clean (same as ListingCache primary key)
         cache_map = {}
-        for cache_entry in db.query(ListingCache).all():
-            cache_map[cache_entry.make_model] = cache_entry.depreciation
+        for cache_entry in db.query(ListingCache).filter(
+            ListingCache.depreciation.isnot(None),
+            ListingCache.depreciation != '',
+            ListingCache.depreciation != '–'
+        ).all():
+            if cache_entry.listing_url_clean:
+                cache_map[cache_entry.listing_url_clean] = cache_entry.depreciation
     else:
         rows = db.query(VehicleListing).filter(
             and_(
@@ -727,17 +733,21 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
             continue
         dep_value = parse_depreciation(row.depreciation)
         if dep_value is None and source == "sold" and cache_map:
-            cached_dep = cache_map.get(row.make_model)
+            # Look up by listing URL (the correct key for ListingCache)
+            cached_dep = cache_map.get(clean_url)
             dep_value = parse_depreciation(cached_dep)
-        if dep_value is None:
-            skipped_no_dep += 1
-            continue
+
         if model not in result:
             result[model] = {}
         if year not in result[model]:
             result[model][year] = {'values': [], 'count': 0}
-        result[model][year]['values'].append(dep_value)
+
+        # Always count the unit, even if depreciation is unknown
         result[model][year]['count'] += 1
+        if dep_value is not None:
+            result[model][year]['values'].append(dep_value)
+        else:
+            skipped_no_dep += 1
 
     OLDEST_YEAR_LABEL = "2014"
     merged = {}
@@ -781,9 +791,12 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
         for year, data in years_data.items():
             values = data['values']
             final[model][year] = {
-                'lowest': min(values) if values else 0,
-                'average': int(sum(values) / len(values)) if values else 0,
-                'unit': len(values)
+                # None = no depreciation data (frontend shows '-')
+                # 0 is not used - prevents "$0" being shown
+                'lowest': min(values) if values else None,
+                'average': int(sum(values) / len(values)) if values else None,
+                # unit = ALL units (with or without dep) so count matches sgcarmart-sold total
+                'unit': data['count']
             }
 
     logger.info(f"[DEPRECIATION-BY-YEAR] source={source}, models={len(final)}, skipped_no_dep={skipped_no_dep}")
