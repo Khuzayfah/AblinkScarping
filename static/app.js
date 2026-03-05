@@ -1,5 +1,11 @@
 // Ablink SGCarmart Scraper - Frontend
 
+// Returns today's date as "YYYY-MM-DD" in LOCAL browser time (not UTC)
+function getLocalDateStr(date) {
+    var d = date || new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 function showNotification(message, isError) {
     isError = isError || false;
     var toast = document.getElementById('notificationToast');
@@ -24,10 +30,11 @@ async function loadStatus() {
         document.getElementById('lastScrape').textContent = s.last_scrape_at
             ? 'Last scrape: ' + s.last_scrape_at
             : 'Last scrape: —';
-        if (s.schedule_display) {
-            var [h, m] = s.schedule_display.split(':');
-            document.getElementById('scheduleTime').value = (h.length === 1 ? '0' + h : h) + ':' + (m.length === 1 ? '0' + m : m);
-            document.getElementById('currentSchedule').textContent = 'Current: ' + formatTimeDisplay(parseInt(h), parseInt(m)) + ' SGT';
+        if (s.schedule) {
+            var sh = s.schedule.hour;
+            var sm = s.schedule.minute;
+            document.getElementById('scheduleTime').value = (sh < 10 ? '0' + sh : '' + sh) + ':' + (sm < 10 ? '0' + sm : '' + sm);
+            document.getElementById('currentSchedule').textContent = 'Current: ' + formatTimeDisplay(sh, sm) + ' SGT';
         } else {
             document.getElementById('currentSchedule').textContent = 'Current: —';
         }
@@ -147,7 +154,7 @@ function getReportDate() {
     var d = document.getElementById('reportDate');
     var d2 = document.getElementById('reportDateTop');
     if (d2 && d2.value) return d2.value;
-    return d ? d.value : new Date().toISOString().slice(0, 10);
+    return d ? d.value : getLocalDateStr();
 }
 
 function setReportDate(val) {
@@ -159,19 +166,19 @@ function setReportDate(val) {
 
 function navDate(offset) {
     var current = getReportDate();
-    if (!current) current = new Date().toISOString().slice(0, 10);
+    if (!current) current = getLocalDateStr();
     var d = new Date(current + 'T00:00:00');
     d.setDate(d.getDate() + offset);
     var today = new Date();
     today.setHours(0,0,0,0);
     if (d > today) return; // Don't go to future
-    var newDate = d.toISOString().slice(0, 10);
+    var newDate = getLocalDateStr(d);
     setReportDate(newDate);
     loadDailyReport();
 }
 
 function navToday() {
-    var today = new Date().toISOString().slice(0, 10);
+    var today = getLocalDateStr();
     setReportDate(today);
     loadDailyReport();
 }
@@ -225,8 +232,13 @@ async function loadDailyReport() {
         showNotification('Sold report loaded for ' + date + ' (' + totalSold + ' units sold)');
     } catch (e) {
         showNotification('Error: ' + e.message, true);
-        document.getElementById('emptyState').style.display = 'block';
-        document.getElementById('dataTableWrapper').style.display = 'none';
+        // Keep nav wrapper visible so user can still navigate dates
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('dataTableWrapper').style.display = 'block';
+        var errThead = document.getElementById('tableHead');
+        var errTbody = document.getElementById('dataTableBody');
+        if (errThead) errThead.innerHTML = '';
+        if (errTbody) errTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:#ef4444;"><i class="bi bi-exclamation-triangle" style="font-size:2rem;display:block;margin-bottom:8px;"></i>Failed to load data: ' + e.message + '</td></tr>';
     } finally {
         setLoading(false);
     }
@@ -684,7 +696,7 @@ async function loadSoldDepreciationTable() {
         }
 
         // Use today's date for display since it's current accumulated data
-        var today = new Date().toISOString().slice(0, 10);
+        var today = getLocalDateStr();
         container.innerHTML = buildDepreciationTable(result.data, categories.categories, today);
 
         // Show stats
@@ -703,7 +715,7 @@ async function loadSoldDepreciationTable() {
 
 // Auto-expand & load both depreciation tables
 function autoExpandAndLoadDepreciationTables() {
-    var today = new Date().toISOString().slice(0, 10);
+    var today = getLocalDateStr();
 
     // Active depreciation: expand + set date + load
     var activeBody = document.getElementById('activeDepreciationBody');
@@ -729,7 +741,7 @@ function autoExpandAndLoadDepreciationTables() {
 
 document.addEventListener('DOMContentLoaded', function () {
     loadStatus();
-    var today = new Date().toISOString().slice(0, 10);
+    var today = getLocalDateStr();
     setReportDate(today);
     loadDailyReport();
     loadHistory();
