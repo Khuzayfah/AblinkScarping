@@ -12,7 +12,7 @@ import os
 from contextlib import asynccontextmanager
 
 from database import init_db, get_db, VehicleListing, DailyReport, ScrapeLog, AppSetting, SoldLog, SgcarmartSold, ListingCache
-from js_scraper import SGCarMartJSScraper
+from js_scraper import SGCarMartJSScraper, calculate_depreciation
 from export_service import ExportService
 from scheduler import ScraperScheduler
 from sold_log_service import detect_and_log_sold
@@ -616,6 +616,14 @@ async def get_sgcarmart_sold(
             if not d.get('year_registered') or d['year_registered'] in (0, None):
                 if cached.year_registered and cached.year_registered > 0:
                     d['year_registered'] = cached.year_registered
+        # Calculate depreciation from price + year if still missing
+        if not d.get('depreciation') or d['depreciation'] in ('', '–', '$0/yr', '$5,001/yr', None):
+            price_val = d.get('price')
+            yr = d.get('year_registered')
+            if price_val and price_val > 0 and yr:
+                calc = calculate_depreciation(price_val, f"01-Jul-{yr}", car_name=d.get('make_model'))
+                if calc:
+                    d['depreciation'] = f"${calc:,}/yr"
         # Skip items without year or year < 2014 (same as dep table — ensures count consistency)
         if not d.get('year_registered') or d['year_registered'] in (0, None):
             continue
@@ -900,6 +908,25 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
             cached_obj = cache_map.get(clean_url)
             if cached_obj:
                 dep_value = parse_depreciation(cached_obj.depreciation)
+
+        # Calculate depreciation from price + registration_date if still missing
+        if dep_value is None and source == "sold":
+            price_val = getattr(row, 'price', None)
+            reg_date_str = None
+            # SgcarmartSold doesn't store reg_date string, but we can reconstruct from year
+            # Try ListingCache for full data, or use price + year approximation
+            if price_val and price_val > 0:
+                car_name = row.make_model or ''
+                # Try cache for registration_date
+                if cache_map and clean_url:
+                    cached_obj = cache_map.get(clean_url)
+                    if cached_obj and cached_obj.year_registered and price_val:
+                        approx_date = f"01-Jul-{cached_obj.year_registered}"
+                        dep_value = calculate_depreciation(price_val, approx_date, car_name=car_name)
+                # Fallback: use year_registered from the row itself
+                if dep_value is None and year and price_val:
+                    approx_date = f"01-Jul-{year}"
+                    dep_value = calculate_depreciation(price_val, approx_date, car_name=car_name)
 
         if model not in result:
             result[model] = {}

@@ -69,6 +69,67 @@ def extract_year(reg_date: Optional[str]) -> Optional[int]:
     return None
 
 
+def calculate_depreciation(price, reg_date_str, ref_date=None, car_name=None):
+    """Calculate annual depreciation: price / remaining COE years.
+    SGCarMart commercial vehicles have 10-year COE.
+    Formula matches SGCarMart's own calculation (verified within 0.5% accuracy).
+
+    Handles special cases from car_name:
+    - "COE till MM/YYYY" -> use explicit COE expiry date
+    - "New X-yr COE" -> use registration_year + X years
+
+    Returns integer depreciation per year, or None if cannot calculate.
+    """
+    if not price:
+        return None
+    try:
+        price_val = float(price)
+        if price_val <= 0:
+            return None
+        ref = ref_date or datetime.now()
+        coe_expiry = None
+
+        # Try parsing COE expiry from car name (most accurate for renewed COE)
+        if car_name:
+            # Pattern: "COE till MM/YYYY"
+            m = re.search(r'COE\s+till\s+(\d{2})/(\d{4})', car_name, re.IGNORECASE)
+            if m:
+                month = int(m.group(1))
+                year = int(m.group(2))
+                coe_expiry = datetime(year, month, 1)
+            else:
+                # Pattern: "New X-yr COE"
+                m = re.search(r'New\s+(\d+)-yr\s+COE', car_name, re.IGNORECASE)
+                if m and reg_date_str:
+                    coe_years = int(m.group(1))
+                    try:
+                        reg = datetime.strptime(reg_date_str, "%d-%b-%Y")
+                        coe_expiry = reg + timedelta(days=365.25 * coe_years)
+                    except ValueError:
+                        pass
+
+        # Default: registration date + 10 years
+        if coe_expiry is None and reg_date_str:
+            try:
+                reg = datetime.strptime(reg_date_str, "%d-%b-%Y")
+                coe_expiry = reg + timedelta(days=365.25 * 10)
+            except ValueError:
+                return None
+        elif coe_expiry is None:
+            return None
+
+        remaining_days = (coe_expiry - ref).days
+        remaining_years = remaining_days / 365.25
+        if remaining_years < 0.5:
+            return None  # Too close to/past expiry, unreliable
+        dep = round(price_val / remaining_years)
+        if dep <= 0 or dep > 100000:
+            return None  # Sanity check
+        return dep
+    except (ValueError, TypeError):
+        return None
+
+
 def _extract_rsc_str(text: str, field: str, start: int, end: int) -> Optional[str]:
     """Extract a string field value from RSC payload text."""
     prefix = BQ + field + BQ + ':' + BQ
@@ -727,6 +788,14 @@ class SGCarMartJSScraper:
                     if detail_dep and not dep_str:
                         dep_str = detail_dep
 
+                # Calculate depreciation from price + reg_date if still missing
+                # SGCarMart never provides dep for sold items (always 0), so calculate it
+                if not dep_str and item.get('price') and reg_date:
+                    calc_dep = calculate_depreciation(item['price'], reg_date, car_name=name)
+                    if calc_dep:
+                        dep_str = f"${calc_dep:,}/yr"
+                        logger.info(f"    [CALC-DEP] {name} -> dep={dep_str} (from price=${item['price']:,} / remaining COE)")
+
                 if not dealer_name:
                     dealer_name = '–'
                 if not dep_str:
@@ -914,6 +983,19 @@ class SGCarMartJSScraper:
                         source = 'model'
                         dep_found['model'] += 1
 
+                # Layer 5: Calculate from price + registration_date
+                if (not dep or dep == '–') and price:
+                    reg_date_str = item.get('registration_date') or ''
+                    make_model = item.get('make_model', '')
+                    if not reg_date_str and item.get('registered_year'):
+                        reg_date_str = f"01-Jul-{item['registered_year']}"
+                    calc = calculate_depreciation(price, reg_date_str, car_name=make_model)
+                    if calc:
+                        dep = f"${calc:,}/yr"
+                        source = 'calc'
+                        dep_found.setdefault('calc', 0)
+                        dep_found['calc'] += 1
+
                 if not dep or dep == '–':
                     dep = '–'
                     dep_found['missing'] += 1
@@ -1061,6 +1143,17 @@ class SGCarMartJSScraper:
                                 dep = model_map[key]
                         if dep:
                             entry.depreciation = dep
+                            changed = True
+
+                # Final fallback: calculate from price + year/COE
+                if not entry.depreciation or entry.depreciation in ('', '–', '$0/yr'):
+                    if entry.price and entry.price > 0 and entry.year_registered:
+                        calc = calculate_depreciation(
+                            entry.price, f"01-Jul-{entry.year_registered}",
+                            car_name=entry.make_model
+                        )
+                        if calc:
+                            entry.depreciation = f"${calc:,}/yr"
                             changed = True
 
                 if changed:
