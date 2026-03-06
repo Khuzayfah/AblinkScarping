@@ -66,6 +66,33 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Could not load schedule from DB, using defaults: {e}")
     scheduler.start()
     logger.info("Application started. Scheduler is running.")
+
+    # Run backfill + integrity check on startup
+    try:
+        from database import SessionLocal as _SL
+        _db = _SL()
+        try:
+            # Backfill missing data from cache
+            logger.info("[STARTUP] Running sold data backfill...")
+            SGCarMartJSScraper._backfill_sold_depreciation(_db)
+            logger.info("[STARTUP] Backfill complete.")
+
+            # SoldLog integrity scan: flag dates with suspiciously high sold counts
+            from sqlalchemy import func as _fn
+            sus = _db.query(
+                _fn.date(SoldLog.sold_date).label('d'),
+                _fn.count(SoldLog.id).label('cnt')
+            ).group_by(_fn.date(SoldLog.sold_date)).having(_fn.count(SoldLog.id) > 200).all()
+            if sus:
+                for s in sus:
+                    logger.warning(f"[INTEGRITY] SoldLog date {s.d} has {s.cnt} entries — possible accumulated data (>200 threshold)")
+            else:
+                logger.info("[STARTUP] SoldLog integrity OK — no suspicious dates found")
+        finally:
+            _db.close()
+    except Exception as e:
+        logger.warning(f"[STARTUP] Backfill/integrity check failed: {e}")
+
     yield
     scheduler.stop()
     logger.info("Application shutting down.")
@@ -185,7 +212,7 @@ async def get_status(db: Session = Depends(get_db)):
 
 @app.post("/api/schedule")
 async def update_schedule(
-    body: Dict[str, int] = Body(..., embed=True),
+    body: Dict[str, Any] = Body(...),
     db: Session = Depends(get_db)
 ):
     """Update auto scrape schedule (e.g. { \"hour\": 9, \"minute\": 0, \"interval_days\": 1 })"""
@@ -216,12 +243,12 @@ async def update_schedule(
 async def get_listings(
     date: Optional[str] = None,
     make_model: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 5000,
     db: Session = Depends(get_db)
 ):
-    """Get vehicle listings with optional filters"""
+    """Get vehicle listings — target vehicles only, deduped, enriched from cache"""
     query = db.query(VehicleListing)
-    
+
     if date:
         try:
             target_date = datetime.strptime(date, "%Y-%m-%d").date()
@@ -234,17 +261,71 @@ async def get_listings(
             )
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    
+
     if make_model:
         query = query.filter(VehicleListing.make_model.ilike(f"%{make_model}%"))
-    
-    listings = query.order_by(VehicleListing.scrape_date.desc()).limit(limit).all()
-    return [listing.to_dict() for listing in listings]
+
+    all_rows = query.order_by(VehicleListing.scrape_date.desc()).all()
+
+    # Build ListingCache lookup for enrichment
+    cache_map = {}
+    for c in db.query(ListingCache).all():
+        if c.listing_url_clean:
+            cache_map[c.listing_url_clean] = c
+
+    # Filter to target vehicles + dedup by URL (same as dep table)
+    seen_urls = set()
+    filtered = []
+    for r in all_rows:
+        raw_url = getattr(r, 'listing_url', '') or ''
+        clean_url = _url_dedup_key(raw_url)
+        if clean_url:
+            if clean_url in seen_urls:
+                continue
+            seen_urls.add(clean_url)
+        model = _normalize_model(r.make_model)
+        if not model:
+            continue
+        d = r.to_dict()
+        d['matched_model'] = model
+        # Enrich from ListingCache for empty fields
+        cached = cache_map.get(clean_url) if clean_url else None
+        if cached:
+            if not d.get('depreciation') or d['depreciation'] in ('', '–', '$0/yr', None):
+                if cached.depreciation and cached.depreciation not in ('', '–', '$0/yr'):
+                    d['depreciation'] = cached.depreciation
+            if not d.get('dealer_name') or d['dealer_name'] in ('', '–', None):
+                if cached.dealer_name and cached.dealer_name not in ('', '–'):
+                    d['dealer_name'] = cached.dealer_name
+        # Skip items without year or year < 2014 (same as dep table — ensures count consistency)
+        year_val = d.get('registered_year') or d.get('year_registered')
+        if not year_val or year_val in (0, None):
+            continue
+        try:
+            if int(year_val) < 2014:
+                continue
+        except (ValueError, TypeError):
+            continue
+        filtered.append(d)
+
+    return filtered[:limit]
+
+# Targets in GOODS VAN categories — require passenger variant exclusion
+_GOODS_VAN_TARGETS = frozenset(
+    m for cat, models in config.VEHICLE_CATEGORIES.items()
+    if 'GOODS VAN' in cat
+    for m in models
+)
+# Passenger/commuter keywords: if found in the raw model name AND the matched target
+# is a GOODS VAN model, reject the match (it's a people carrier, not a cargo van)
+_PASSENGER_VAN_KEYWORDS = frozenset({'COMMUTER', 'CARAVAN', 'MICROBUS', 'URVAN'})
+
 
 def _normalize_model(name: str) -> Optional[str]:
     """Match listing make_model to TARGET_VEHICLES (case-insensitive).
     Handles names like 'Toyota Dyna 150 3.0M (COE till 01/2031)' -> 'TOYOTA DYNA 3.0'
     Also handles dirty names like 'Used Toyota Dyna 150 3.0MReg Date: ...$99,988'
+    Goods Van passenger variants (Commuter, Caravan, Microbus, Urvan) are excluded.
     """
     if not name:
         return None
@@ -263,7 +344,7 @@ def _normalize_model(name: str) -> Optional[str]:
     n = re.sub(r'\s*\((?:COE|NEW|5-YR).*\)', '', n, flags=re.IGNORECASE).strip()
     # Remove intermediate model numbers like "150" in "DYNA 150 3.0M"
     n = re.sub(r'(\bDYNA)\s+\d+\s+', r'\1 ', n)
-    # "COMMUTER" suffix removal for Hiace matching
+    # "COMMUTER" suffix removal for Hiace matching (still match, but will be rejected for GOODS VAN below)
     n_no_commuter = re.sub(r'\bCOMMUTER\b', '', n).strip()
     n_no_commuter = re.sub(r'\s+', ' ', n_no_commuter)
     # "DX" / "GL" / "HIGH ROOF" suffix removal for matching
@@ -272,29 +353,54 @@ def _normalize_model(name: str) -> Optional[str]:
     # Two-pass matching: first try exact (with A/M), then try transmission-agnostic
     n_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', n_clean)
 
+    matched = None
+
     # PASS 1: Exact match (preserves A/M distinction like 3.0A vs 3.0M)
     for v in config.TARGET_VEHICLES:
         vu = v.upper()
         if vu in n or n in vu:
-            return v
+            matched = v; break
         if vu in n_no_commuter or n_no_commuter in vu:
-            return v
+            matched = v; break
         if vu in n_clean or n_clean in vu:
-            return v
+            matched = v; break
         # Special: match "ISUZU NHR87A" to "ISUZU NHR"
         if "ISUZU" in n and vu == "ISUZU NHR" and "NHR" in n:
-            return v
+            matched = v; break
         if "ISUZU" in n and vu == "ISUZU NJR" and "NJR" in n:
-            return v
+            matched = v; break
 
     # PASS 2: Transmission-agnostic fallback (A/M stripped)
-    # Only if no exact match found above
-    for v in config.TARGET_VEHICLES:
-        vu = v.upper()
-        vu_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', vu)
-        if vu_no_trans and (vu_no_trans in n_no_trans or n_no_trans in vu_no_trans):
-            return v
-    return None
+    if matched is None:
+        for v in config.TARGET_VEHICLES:
+            vu = v.upper()
+            vu_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', vu)
+            if vu_no_trans and (vu_no_trans in n_no_trans or n_no_trans in vu_no_trans):
+                matched = v; break
+
+    if matched is None:
+        return None
+
+    # Goods Van passenger exclusion: if the matched target is in a GOODS VAN category,
+    # reject the match when the original name contains a passenger variant keyword
+    if matched in _GOODS_VAN_TARGETS:
+        n_upper = name.upper()
+        for kw in _PASSENGER_VAN_KEYWORDS:
+            if kw in n_upper:
+                return None  # Passenger/commuter variant — not a cargo goods van
+    return matched
+
+
+def _url_dedup_key(url):
+    """Return a unique key for URL deduplication.
+    Old-format URLs (info.php?ID=xxx): keep full URL — stripping query would collapse all to same path.
+    New-format URLs (used-cars/info/name-id/): strip query params (safe, path is unique).
+    """
+    if not url:
+        return ''
+    if 'info.php' in url and '?ID=' in url:
+        return url  # Old format: ID is in query string, keep it
+    return url.split('?')[0]  # New format: path is unique
 
 
 def _build_daily_table(sold_rows: list, report_date: str) -> Dict[str, Any]:
@@ -468,15 +574,63 @@ async def get_sold_log(
 
 @app.get("/api/sgcarmart-sold")
 async def get_sgcarmart_sold(
-    limit: int = 500,
+    limit: int = 5000,
     db: Session = Depends(get_db)
 ):
-    """Get accumulated sold listings from SGCarMart (avl=s) - all-time data"""
-    rows = db.query(SgcarmartSold).order_by(SgcarmartSold.id.desc()).limit(limit).all()
-    total = db.query(SgcarmartSold).count()
+    """Get accumulated sold listings from SGCarMart (avl=s) - target vehicles only, enriched from cache"""
+    rows = db.query(SgcarmartSold).order_by(SgcarmartSold.id.desc()).all()
+
+    # Build ListingCache lookup for enrichment
+    cache_map = {}
+    for c in db.query(ListingCache).all():
+        if c.listing_url_clean:
+            cache_map[c.listing_url_clean] = c
+
+    # Filter to target vehicles + dedup by URL (same logic as dep table)
+    seen_urls = set()
+    filtered = []
+    for r in rows:
+        raw_url = r.listing_url or ''
+        clean_url = _url_dedup_key(raw_url)
+        if clean_url:
+            if clean_url in seen_urls:
+                continue
+            seen_urls.add(clean_url)
+        model = _normalize_model(r.make_model)
+        if not model:
+            continue
+        # Enrich from ListingCache for empty fields
+        d = r.to_dict()
+        d['matched_model'] = model
+        cached = cache_map.get(clean_url) if clean_url else None
+        if cached:
+            if not d.get('depreciation') or d['depreciation'] in ('', '–', '$0/yr', None):
+                if cached.depreciation and cached.depreciation not in ('', '–', '$0/yr'):
+                    d['depreciation'] = cached.depreciation
+            if not d.get('dealer_name') or d['dealer_name'] in ('', '–', None):
+                if cached.dealer_name and cached.dealer_name not in ('', '–'):
+                    d['dealer_name'] = cached.dealer_name
+            if not d.get('price') or d['price'] in (0, None):
+                if cached.price and cached.price > 0:
+                    d['price'] = cached.price
+            if not d.get('year_registered') or d['year_registered'] in (0, None):
+                if cached.year_registered and cached.year_registered > 0:
+                    d['year_registered'] = cached.year_registered
+        # Skip items without year or year < 2014 (same as dep table — ensures count consistency)
+        if not d.get('year_registered') or d['year_registered'] in (0, None):
+            continue
+        try:
+            if int(d['year_registered']) < 2014:
+                continue
+        except (ValueError, TypeError):
+            continue
+        filtered.append(d)
+
+    total = len(filtered)
+    items = filtered[:limit]
     return {
         "total": total,
-        "items": [r.to_dict() for r in rows]
+        "items": items
     }
 
 
@@ -675,15 +829,12 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
     if source == "sold":
         rows = db.query(SgcarmartSold).all()
         year_field = 'year_registered'
-        # Cache map keyed by listing_url_clean (same as ListingCache primary key)
+        # Cache map keyed by listing_url_clean → full ListingCache object
+        # (used for depreciation, year, dealer, price enrichment)
         cache_map = {}
-        for cache_entry in db.query(ListingCache).filter(
-            ListingCache.depreciation.isnot(None),
-            ListingCache.depreciation != '',
-            ListingCache.depreciation != '–'
-        ).all():
+        for cache_entry in db.query(ListingCache).all():
             if cache_entry.listing_url_clean:
-                cache_map[cache_entry.listing_url_clean] = cache_entry.depreciation
+                cache_map[cache_entry.listing_url_clean] = cache_entry
     else:
         rows = db.query(VehicleListing).filter(
             and_(
@@ -719,7 +870,7 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
         # Deduplicate: skip if we already processed this listing URL
         url_field = 'listing_url'
         raw_url = getattr(row, url_field, None) or ''
-        clean_url = raw_url.split('?')[0] if raw_url else ''
+        clean_url = _url_dedup_key(raw_url)
         if clean_url:
             if clean_url in seen_urls:
                 continue
@@ -729,13 +880,26 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
         if not model:
             continue
         year = getattr(row, year_field)
+        # Try to fill year from ListingCache if missing
+        if not year and source == "sold" and clean_url and cache_map:
+            cached_obj = cache_map.get(clean_url)
+            if cached_obj and cached_obj.year_registered:
+                year = cached_obj.year_registered
         if not year:
+            continue  # Skip items without year (cannot categorize)
+        # Skip items with year < 2014 (not shown in dep table)
+        try:
+            if int(year) < 2014:
+                continue
+        except (ValueError, TypeError):
             continue
+
         dep_value = parse_depreciation(row.depreciation)
         if dep_value is None and source == "sold" and cache_map:
-            # Look up by listing URL (the correct key for ListingCache)
-            cached_dep = cache_map.get(clean_url)
-            dep_value = parse_depreciation(cached_dep)
+            # Look up by listing URL — cache_map now stores full ListingCache objects
+            cached_obj = cache_map.get(clean_url)
+            if cached_obj:
+                dep_value = parse_depreciation(cached_obj.depreciation)
 
         if model not in result:
             result[model] = {}
@@ -749,15 +913,11 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
         else:
             skipped_no_dep += 1
 
-    OLDEST_YEAR_LABEL = "2014"
     merged = {}
     for model, years_data in result.items():
         merged[model] = {}
         for year, data in years_data.items():
-            if isinstance(year, int) and year <= 2014:
-                key = OLDEST_YEAR_LABEL
-            else:
-                key = year
+            key = year
             if key not in merged[model]:
                 merged[model][key] = {'values': [], 'count': 0}
             merged[model][key]['values'].extend(data['values'])

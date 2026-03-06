@@ -346,9 +346,9 @@ class ExportService:
     def _get_year_range():
         """Get year columns matching the web app."""
         current_year = datetime.now().year
-        years = list(range(current_year, 2014, -1))  # 2026..2015
-        year_labels = [str(y) for y in years] + ["2014 & Older"]
-        year_keys = [str(y) for y in years] + ["2014"]
+        years = list(range(current_year, 2013, -1))  # 2026..2014
+        year_labels = [str(y) for y in years]
+        year_keys = [str(y) for y in years]
         return years, year_labels, year_keys
 
     @staticmethod
@@ -363,7 +363,7 @@ class ExportService:
                 row = {"Category": category, "Vehicle": vehicle}
                 total_units = 0
                 for label, key in zip(year_labels, year_keys):
-                    yd = vehicle_data.get(int(key) if key != "2014" else key) or vehicle_data.get(key, {})
+                    yd = vehicle_data.get(int(key)) or vehicle_data.get(key, {})
                     low = yd.get("lowest", 0) if yd else 0
                     avg = yd.get("average", 0) if yd else 0
                     cnt = yd.get("unit", 0) if yd else 0

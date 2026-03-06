@@ -269,9 +269,7 @@ async function triggerScrape() {
                 loadDailyReport();
                 loadHistory();
                 loadSgcarmartSold();
-                loadSgcarmartSoldCount();
-                loadActiveLogCount();
-                // Auto-expand & load both depreciation tables
+                // Auto-expand & load both depreciation tables (also updates badges)
                 autoExpandAndLoadDepreciationTables();
                 showNotification('Scraping completed. All data refreshed.');
             }
@@ -283,8 +281,6 @@ async function triggerScrape() {
             loadDailyReport();
             loadHistory();
             loadSgcarmartSold();
-            loadSgcarmartSoldCount();
-            loadActiveLogCount();
             autoExpandAndLoadDepreciationTables();
         }, 300000);
     } catch (e) {
@@ -422,10 +418,10 @@ async function loadActiveLog() {
     var info = document.getElementById('activeLogInfo');
     container.innerHTML = '<div class="sold-log-empty">Loading...</div>';
     try {
-        var r = await fetch('/api/listings?date=' + date + '&limit=500');
+        var r = await fetch('/api/listings?date=' + date + '&limit=5000');
         if (!r.ok) throw new Error('Failed');
         var list = await r.json();
-        if (info) info.textContent = list.length + ' listings found';
+        if (info) info.textContent = list.length + ' matched target vehicles';
         if (!list || list.length === 0) {
             container.innerHTML = '<div class="sold-log-empty">No active listings for this date.</div>';
             return;
@@ -460,15 +456,12 @@ async function loadSgcarmartSold() {
     var info = document.getElementById('soldLogInfo');
     container.innerHTML = '<div class="sold-log-empty">Loading...</div>';
     try {
-        var r = await fetch('/api/sgcarmart-sold?limit=500');
+        var r = await fetch('/api/sgcarmart-sold?limit=5000');
         if (!r.ok) throw new Error('Failed to load');
         var data = await r.json();
         var list = data.items || [];
-        if (countBadge) {
-            countBadge.textContent = data.total + ' total';
-            countBadge.style.display = data.total > 0 ? 'inline-block' : 'none';
-        }
-        if (info) info.textContent = 'Showing ' + list.length + ' of ' + data.total + ' sold listings';
+        // data.total is now filtered (target vehicles only) — same as dep table total
+        if (info) info.textContent = 'Showing ' + list.length + ' of ' + data.total + ' matched target vehicles (all-time)';
         container.innerHTML = buildSoldLogTable(list);
     } catch (e) {
         container.innerHTML = '<div class="sold-log-empty">Error loading sold listings.</div>';
@@ -518,8 +511,7 @@ function toggleAndLoadSoldDepreciation() {
 function buildDepreciationTable(data, categories, dateStr) {
     var currentYear = new Date().getFullYear();
     var years = [];
-    for (var y = currentYear; y >= 2015; y--) { years.push(y); }
-    var OLDER_KEY = '2014';
+    for (var y = currentYear; y >= 2014; y--) { years.push(y); }
 
     var d = new Date(dateStr + 'T00:00:00');
     var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
@@ -537,7 +529,7 @@ function buildDepreciationTable(data, categories, dateStr) {
     var countColBg = '#D6E4F0';
     var avgColBg = '#E8F0FE';
 
-    var yearGroupCount = years.length + 1;
+    var yearGroupCount = years.length; // all years (2014 to current)
     var catColSpan = 1 + (yearGroupCount * 3) + 1;
     var dataTotalCols = yearGroupCount * 3;
 
@@ -561,7 +553,6 @@ function buildDepreciationTable(data, categories, dateStr) {
     years.forEach(function(year) {
         html += '<td colspan="3" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:8px 4px;border:1px solid ' + hdrBorder + ';border-left:2px solid ' + hdrBorder + ';font-size:0.88rem;">' + year + '</td>';
     });
-    html += '<td colspan="3" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:8px 4px;border:1px solid ' + hdrBorder + ';border-left:2px solid ' + hdrBorder + ';white-space:nowrap;font-size:0.82rem;">2014 &amp; Older</td>';
     html += '<td rowspan="2" style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:8px 6px;border:1px solid ' + hdrBorder + ';vertical-align:middle;white-space:nowrap;font-size:0.82rem;">TOTAL<br>UNITS</td>';
     html += '</tr>';
 
@@ -615,9 +606,6 @@ function buildDepreciationTable(data, categories, dateStr) {
                 renderYearGroup(yd);
             });
 
-            var olderData = vehicleData[OLDER_KEY] || vehicleData[parseInt(OLDER_KEY)];
-            renderYearGroup(olderData);
-
             html += '<td style="text-align:center;font-weight:800;padding:6px 8px;border:1px solid ' + cellBorder + ';background:#E2EFDA;font-size:0.88rem;color:#1a5f2a;">' + totalUnits + '</td>';
             html += '</tr>';
         });
@@ -667,6 +655,14 @@ async function loadActiveDepreciationTable() {
         }
 
         container.innerHTML = buildDepreciationTable(result.data, categories.categories, date);
+
+        // Sync active listing badge to match exactly what dep table shows
+        var totalDepUnits = 0;
+        for (var m in result.data) {
+            for (var y in result.data[m]) totalDepUnits += result.data[m][y].unit || 0;
+        }
+        var activeBadge = document.getElementById('activeLogBadge');
+        if (activeBadge) activeBadge.textContent = totalDepUnits;
     } catch (e) {
         container.innerHTML = '<div class="sold-log-empty">Error loading depreciation table: ' + e.message + '</div>';
     }
@@ -699,13 +695,24 @@ async function loadSoldDepreciationTable() {
         var today = getLocalDateStr();
         container.innerHTML = buildDepreciationTable(result.data, categories.categories, today);
 
-        // Show stats
+        // Show stats and sync the all-time sold badge with dep table total
         var totalModels = Object.keys(result.data).length;
         var totalUnits = 0;
         for (var model in result.data) {
             for (var year in result.data[model]) {
                 totalUnits += result.data[model][year].unit || 0;
             }
+        }
+        // Sync badge AND raw table info so all-time raw table and dep table show the same total
+        var soldBadge = document.getElementById('soldLogCountBadge');
+        if (soldBadge && totalUnits > 0) {
+            soldBadge.textContent = totalUnits + ' total';
+            soldBadge.style.display = 'inline-block';
+        }
+        // Update raw sold table info text to match dep table total (eliminate contradiction)
+        var soldInfo = document.getElementById('soldLogInfo');
+        if (soldInfo && totalUnits > 0) {
+            soldInfo.textContent = 'Total: ' + totalUnits + ' matched target vehicles (all-time)';
         }
         showNotification('Loaded sold depreciation: ' + totalUnits + ' units across ' + totalModels + ' models (all-time accumulated)');
     } catch (e) {
@@ -753,20 +760,20 @@ document.addEventListener('DOMContentLoaded', function () {
     if (activeDepDate) activeDepDate.value = today;
     var soldDepDate = document.getElementById('soldDepreciationDate');
     if (soldDepDate) soldDepDate.value = today;
-    // Load stats for badges
-    loadActiveLogCount(today);
-    loadSgcarmartSoldCount();
     // Auto-expand and load both depreciation tables on page load
+    // (dep tables also set the badges so counts match exactly)
     autoExpandAndLoadDepreciationTables();
 });
 
 async function loadActiveLogCount(date) {
+    // Show today's active listing count (same data source as dep table), not all-time total
     try {
-        var r2 = await fetch('/api/statistics');
-        if (!r2.ok) return;
-        var stats = await r2.json();
+        var d = date || getLocalDateStr();
+        var r = await fetch('/api/depreciation-by-year?source=active&date=' + d);
+        if (!r.ok) return;
+        var data = await r.json();
         var badge = document.getElementById('activeLogBadge');
-        if (badge) badge.textContent = stats.total_listings;
+        if (badge) badge.textContent = data.total_rows != null ? data.total_rows : 0;
     } catch(e) {}
 }
 

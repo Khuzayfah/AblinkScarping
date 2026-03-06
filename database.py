@@ -163,6 +163,9 @@ def init_db():
     # Migrate: populate listing_cache from existing vehicle_listings data
     _migrate_listing_cache()
 
+    # Clean up invalid $0/yr entries in listing_cache (SGCarMart uses 0 as N/A placeholder)
+    _clean_invalid_cache_dep()
+
 
 def _migrate_listing_cache():
     """One-time migration: populate listing_cache from existing vehicle_listings.
@@ -218,7 +221,9 @@ def _migrate_listing_cache():
             dealer = (row.dealer_name or '').strip()
             price = row.price
 
-            if not dep or dep == '–':
+            # Skip invalid depreciation values ($0/yr means N/A, not real data)
+            _bad_dep = {'', '–', '$0/yr'}
+            if dep in _bad_dep:
                 if not price and (not dealer or dealer == '–'):
                     continue
 
@@ -226,7 +231,7 @@ def _migrate_listing_cache():
                 listing_url_clean=clean_url,
                 make_model=row.make_model or '',
                 year_registered=row.registered_year,
-                depreciation=dep if dep and dep != '–' else None,
+                depreciation=dep if dep not in _bad_dep else None,
                 dealer_name=dealer if dealer and dealer != '–' else None,
                 price=price,
                 last_seen=row.scrape_date,
@@ -243,6 +248,25 @@ def _migrate_listing_cache():
         db.rollback()
     finally:
         db.close()
+
+def _clean_invalid_cache_dep():
+    """Clean up listing_cache entries where depreciation='$0/yr' (SGCarMart N/A placeholder)."""
+    db = SessionLocal()
+    try:
+        updated = db.query(ListingCache).filter(
+            ListingCache.depreciation == '$0/yr'
+        ).update({ListingCache.depreciation: None})
+        if updated:
+            db.commit()
+            import logging
+            logging.getLogger("database").info(f"[CLEANUP] Cleared $0/yr depreciation from {updated} cache entries")
+    except Exception as e:
+        import logging
+        logging.getLogger("database").warning(f"[CLEANUP] Cache cleanup note: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
 
 def get_db():
     """Get database session"""

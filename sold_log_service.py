@@ -6,25 +6,32 @@ from sqlalchemy import func, and_
 from sqlalchemy.orm import Session
 
 from database import SessionLocal, VehicleListing, SoldLog
-from config import TARGET_VEHICLES
+from config import TARGET_VEHICLES, VEHICLE_CATEGORIES
 
 logger = logging.getLogger("sold_log")
 
+# Targets in GOODS VAN categories — require passenger variant exclusion
+_GOODS_VAN_TARGETS = frozenset(
+    m for cat, models in VEHICLE_CATEGORIES.items()
+    if 'GOODS VAN' in cat
+    for m in models
+)
+_PASSENGER_VAN_KEYWORDS = frozenset({'COMMUTER', 'CARAVAN', 'MICROBUS', 'URVAN'})
+
 
 def _normalize_model(name):
-    """Match listing make_model to TARGET_VEHICLES (case-insensitive)."""
+    """Match listing make_model to TARGET_VEHICLES (case-insensitive).
+    Goods Van passenger variants (Commuter, Caravan, Microbus, Urvan) are excluded.
+    """
     if not name:
         return None
     n = (name or "").upper().strip()
-    # Remove "Used " prefix
     if n.startswith("USED "):
         n = n[5:]
-    # Remove everything after "REG DATE" or "$"
     for cutoff in ["REG DATE", "REG.DATE", "REGDATE", "$"]:
         idx = n.find(cutoff)
         if idx > 0:
             n = n[:idx]
-    # Remove COE suffix
     n = re.sub(r'\s*\((?:COE|NEW|5-YR).*\)', '', n, flags=re.IGNORECASE).strip()
     n = re.sub(r'(\bDYNA)\s+\d+\s+', r'\1 ', n)
     n_clean = re.sub(r'\bCOMMUTER\b', '', n).strip()
@@ -32,20 +39,31 @@ def _normalize_model(name):
     n_clean = re.sub(r'\s+(DX|GL|HIGH ROOF).*$', '', n_clean).strip()
     n_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', n_clean)
 
+    matched = None
     for v in TARGET_VEHICLES:
         vu = v.upper()
         vu_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', vu)
         if vu in n or n in vu:
-            return v
+            matched = v; break
         if vu in n_clean or n_clean in vu:
-            return v
+            matched = v; break
         if vu_no_trans and (vu_no_trans in n_no_trans or n_no_trans in vu_no_trans):
-            return v
+            matched = v; break
         if "ISUZU" in n and ("NHR" in vu and "NHR" in n):
-            return v
+            matched = v; break
         if "ISUZU" in n and ("NJR" in vu and "NJR" in n):
-            return v
-    return None
+            matched = v; break
+
+    if matched is None:
+        return None
+
+    # Goods Van passenger exclusion
+    if matched in _GOODS_VAN_TARGETS:
+        n_upper = name.upper()
+        for kw in _PASSENGER_VAN_KEYWORDS:
+            if kw in n_upper:
+                return None
+    return matched
 
 
 def detect_and_log_sold():
@@ -79,7 +97,18 @@ def detect_and_log_sold():
             logger.warning("No previous scrape data found - cannot detect sold vehicles")
             return 0
 
-        prev_date = prev_date_row[0]
+        prev_date_obj = datetime.strptime(str(prev_date_row[0]), '%Y-%m-%d').date()
+        gap_days = (today - prev_date_obj).days
+        MAX_GAP_DAYS = 2  # Only compare consecutive scrapes (max 2-day gap)
+        if gap_days > MAX_GAP_DAYS:
+            logger.warning(
+                f"Skipping sold detection: gap is {gap_days} days (prev={prev_date_obj}, today={today}). "
+                f"Gap too large — cannot reliably attribute sold units to a single day. "
+                f"Run daily scrapes to enable per-day sold tracking."
+            )
+            return 0
+
+        prev_date = prev_date_obj
         prev_start = datetime.combine(datetime.strptime(str(prev_date), '%Y-%m-%d').date(), datetime.min.time())
         prev_end = prev_start + timedelta(days=1)
 

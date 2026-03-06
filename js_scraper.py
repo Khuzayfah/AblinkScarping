@@ -39,14 +39,16 @@ SEARCH_KEYWORDS_TRUCK = [
     "Kia 2500",
 ]
 
-# VAN DIESEL + VAN PETROL keywords (FILTER: GOODS VAN)
+# VAN DIESEL + VAN PETROL keywords
+# Note: "Goods Van" removed - SGCarMart search doesn't recognize it, returns 0 results.
+# match_target() handles filtering to only keep target vehicle models.
 SEARCH_KEYWORDS_VAN = [
-    "Toyota Hiace 3.0 Goods Van",
-    "Toyota Hiace 2.8 Goods Van",
-    "Toyota Hiace 2.0 Goods Van",
-    "Nissan NV350 Goods Van",
-    "Nissan NV200 Goods Van",
-    "Honda N-VAN Goods Van",
+    "Toyota Hiace 3.0",
+    "Toyota Hiace 2.8",
+    "Toyota Hiace 2.0",
+    "Nissan NV350",
+    "Nissan NV200",
+    "Honda N-VAN",
 ]
 
 # Combined list
@@ -511,9 +513,9 @@ class SGCarMartJSScraper:
                 depreciation = item.get('depreciation')
                 reg_date = item.get('registration_date', '')
 
-                # Format depreciation
+                # Format depreciation - skip 0 (SGCarMart uses 0 as N/A placeholder)
                 dep_str = ''
-                if depreciation is not None:
+                if depreciation is not None and depreciation > 0:
                     dep_str = f"${depreciation:,}/yr"
 
                 # If dealer name is missing, try to get from dealer map or detail page
@@ -704,8 +706,9 @@ class SGCarMartJSScraper:
                 clean_link = link.split('?')[0] if link else ''
                 if clean_link and clean_link in cache_lookup:
                     cached = cache_lookup[clean_link]
-                    if not dep_str and cached.get('depreciation') and cached['depreciation'] != '–':
-                        dep_str = cached['depreciation']
+                    cached_dep = cached.get('depreciation') or ''
+                    if not dep_str and cached_dep and cached_dep not in ('–', '$0/yr'):
+                        dep_str = cached_dep
                         logger.info(f"    [CACHE-HIT] {name} -> dep={dep_str}")
                     if not item.get('price') and cached.get('price'):
                         item['price'] = cached['price']
@@ -868,14 +871,14 @@ class SGCarMartJSScraper:
                 # Layer 0: listing_cache (data from when listing was active - most reliable)
                 if clean_url and clean_url in cache_map:
                     cached = cache_map[clean_url]
-                    if not dep or dep == '–':
-                        if cached['depreciation'] and cached['depreciation'] != '–':
-                            dep = cached['depreciation']
-                            source = 'cache'
-                            dep_found['cache'] += 1
-                    if not price and cached['price']:
+                    cached_dep = cached.get('depreciation') or ''
+                    if (not dep or dep == '–') and cached_dep and cached_dep not in ('–', '$0/yr'):
+                        dep = cached_dep
+                        source = 'cache'
+                        dep_found['cache'] += 1
+                    if not price and cached.get('price'):
                         price = cached['price']
-                    if (not dealer or dealer == '–') and cached['dealer_name'] and cached['dealer_name'] != '–':
+                    if (not dealer or dealer == '–') and cached.get('dealer_name') and cached['dealer_name'] != '–':
                         dealer = cached['dealer_name']
 
                 # Layer 1: Already have from scraper/detail page?
@@ -949,33 +952,38 @@ class SGCarMartJSScraper:
 
     @staticmethod
     def _backfill_sold_depreciation(db):
-        """Backfill depreciation/price/dealer for existing sgcarmart_sold entries that have '–'.
+        """Backfill depreciation/price/dealer/year for existing sgcarmart_sold entries.
         Uses listing_cache, vehicle_listings, and sold_log as sources."""
         try:
+            # Find entries missing ANY key field (depreciation, dealer, price, year)
             missing = db.query(SgcarmartSold).filter(
                 (SgcarmartSold.depreciation == '–') |
                 (SgcarmartSold.depreciation == '') |
-                (SgcarmartSold.depreciation.is_(None))
+                (SgcarmartSold.depreciation.is_(None)) |
+                (SgcarmartSold.dealer_name == '–') |
+                (SgcarmartSold.dealer_name == '') |
+                (SgcarmartSold.dealer_name.is_(None)) |
+                (SgcarmartSold.price.is_(None)) |
+                (SgcarmartSold.price == 0) |
+                (SgcarmartSold.year_registered.is_(None)) |
+                (SgcarmartSold.year_registered == 0)
             ).all()
 
             if not missing:
-                logger.info("  [BACKFILL] No sold entries need depreciation backfill")
+                logger.info("  [BACKFILL] No sold entries need backfill")
                 return
 
-            logger.info(f"  [BACKFILL] {len(missing)} sold entries missing depreciation, trying to fill...")
+            logger.info(f"  [BACKFILL] {len(missing)} sold entries need enrichment, trying to fill...")
 
-            # Build lookup from listing_cache (highest priority)
+            # Build lookup from listing_cache (highest priority — has all fields)
             cache_map = {}
-            for row in db.query(ListingCache).filter(
-                ListingCache.depreciation.isnot(None),
-                ListingCache.depreciation != '',
-                ListingCache.depreciation != '–'
-            ).all():
+            for row in db.query(ListingCache).all():
                 if row.listing_url_clean:
                     cache_map[row.listing_url_clean] = {
                         'depreciation': row.depreciation,
                         'price': row.price,
                         'dealer_name': row.dealer_name,
+                        'year_registered': row.year_registered,
                     }
 
             # Build lookup from vehicle_listings
@@ -1011,38 +1019,52 @@ class SGCarMartJSScraper:
             updated = 0
             for entry in missing:
                 clean_url = (entry.listing_url or '').split('?')[0]
-                dep = None
-                src = ''
+                changed = False
 
-                # Try listing_cache first (most reliable)
+                # ---- Fill from listing_cache (highest priority, has all fields) ----
                 if clean_url and clean_url in cache_map:
                     cached = cache_map[clean_url]
-                    dep = cached['depreciation']
-                    src = 'cache'
-                    # Also fill price and dealer if missing
-                    if not entry.price and cached.get('price'):
-                        entry.price = cached['price']
-                    if (not entry.dealer_name or entry.dealer_name == '–') and cached.get('dealer_name') and cached['dealer_name'] != '–':
-                        entry.dealer_name = cached['dealer_name']
-                # Try URL match from active
-                elif clean_url and clean_url in active_map:
-                    dep = active_map[clean_url]
-                    src = 'active'
-                # Try URL match from sold_log
-                elif clean_url and clean_url in soldlog_map:
-                    dep = soldlog_map[clean_url]
-                    src = 'soldlog'
-                # Try model+year match
+                    # Fill depreciation
+                    if not entry.depreciation or entry.depreciation in ('', '–', '$0/yr'):
+                        if cached.get('depreciation') and cached['depreciation'] not in ('', '–', '$0/yr'):
+                            entry.depreciation = cached['depreciation']
+                            changed = True
+                    # Fill price
+                    if not entry.price or entry.price == 0:
+                        if cached.get('price') and cached['price'] > 0:
+                            entry.price = cached['price']
+                            changed = True
+                    # Fill dealer
+                    if not entry.dealer_name or entry.dealer_name in ('', '–'):
+                        if cached.get('dealer_name') and cached['dealer_name'] not in ('', '–'):
+                            entry.dealer_name = cached['dealer_name']
+                            changed = True
+                    # Fill year
+                    if not entry.year_registered or entry.year_registered == 0:
+                        if cached.get('year_registered') and cached['year_registered'] > 0:
+                            entry.year_registered = cached['year_registered']
+                            changed = True
                 else:
-                    key = ((entry.make_model or '').upper().strip(), entry.year_registered)
-                    if key in model_map:
-                        dep = model_map[key]
-                        src = 'model'
+                    # ---- Fill depreciation from other sources ----
+                    if not entry.depreciation or entry.depreciation in ('', '–', '$0/yr'):
+                        dep = None
+                        # Try URL match from active listings
+                        if clean_url and clean_url in active_map:
+                            dep = active_map[clean_url]
+                        # Try URL match from sold_log
+                        elif clean_url and clean_url in soldlog_map:
+                            dep = soldlog_map[clean_url]
+                        # Try model+year match
+                        else:
+                            key = ((entry.make_model or '').upper().strip(), entry.year_registered)
+                            if key in model_map:
+                                dep = model_map[key]
+                        if dep:
+                            entry.depreciation = dep
+                            changed = True
 
-                if dep:
-                    entry.depreciation = dep
+                if changed:
                     updated += 1
-                    logger.info(f"    [BACKFILL-{src.upper()}] {entry.make_model} -> {dep}")
 
             if updated > 0:
                 db.commit()
@@ -1225,7 +1247,8 @@ class SGCarMartJSScraper:
                 price = item.get('price')
 
                 # Only cache if we have useful data
-                if not dep or dep == '–':
+                _bad_dep = {'', '–', '$0/yr'}
+                if dep in _bad_dep:
                     if not price and not dealer:
                         continue
 
@@ -1235,7 +1258,7 @@ class SGCarMartJSScraper:
 
                 if existing:
                     # Update if new data is better
-                    if dep and dep != '–' and (not existing.depreciation or existing.depreciation == '–'):
+                    if dep not in _bad_dep and (not existing.depreciation or existing.depreciation in _bad_dep):
                         existing.depreciation = dep
                     if dealer and dealer != '–' and (not existing.dealer_name or existing.dealer_name == '–'):
                         existing.dealer_name = dealer
@@ -1248,7 +1271,7 @@ class SGCarMartJSScraper:
                         listing_url_clean=clean_url,
                         make_model=item.get('make_model', ''),
                         year_registered=item.get('registered_year'),
-                        depreciation=dep if dep and dep != '–' else None,
+                        depreciation=dep if dep not in _bad_dep else None,
                         dealer_name=dealer if dealer and dealer != '–' else None,
                         price=price,
                         last_seen=now,
