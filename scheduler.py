@@ -79,6 +79,24 @@ class ScraperScheduler:
             logger.info(f"===== SCHEDULED SCRAPE COMPLETED =====")
             logger.info(f"  Active: {active_count} | Sold today: {comparison_sold} | SGCarMart sold: {avl_count}")
 
+            # Step 4: Send daily email report (if enabled in DB settings)
+            try:
+                from email_service import send_daily_report, get_db_setting
+                from database import SessionLocal as EmailDBSession
+                email_db = EmailDBSession()
+                try:
+                    if get_db_setting(email_db, 'gmail_enabled', 'false') == 'true':
+                        date_str = now_sgt.strftime("%Y-%m-%d")
+                        ok, msg = send_daily_report(email_db, date_str)
+                        if ok:
+                            logger.info(f"[SCHEDULER] Email: {msg}")
+                        else:
+                            logger.warning(f"[SCHEDULER] Email skipped: {msg}")
+                finally:
+                    email_db.close()
+            except Exception as email_err:
+                logger.error(f"[SCHEDULER] Email error: {email_err}")
+
         except Exception as e:
             logger.error(f"[SCHEDULER] Scrape failed with error: {e}")
             import traceback

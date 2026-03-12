@@ -749,6 +749,7 @@ function autoExpandAndLoadDepreciationTables() {
 
 document.addEventListener('DOMContentLoaded', function () {
     loadStatus();
+    loadGmailStatus();
     var today = getLocalDateStr();
     setReportDate(today);
     loadDailyReport();
@@ -789,4 +790,157 @@ async function loadSgcarmartSoldCount() {
             badge.style.display = data.total > 0 ? 'inline-block' : 'none';
         }
     } catch(e) {}
+}
+
+// Load Gmail OAuth2 status
+async function loadGmailStatus() {
+    try {
+        var r = await fetch('/api/gmail-status');
+        if (!r.ok) return;
+        var s = await r.json();
+        var notConn = document.getElementById('gmailNotConnected');
+        var conn = document.getElementById('gmailConnected');
+        var badge = document.getElementById('gmailEnabledBadge');
+        if (s.connected) {
+            if (notConn) notConn.style.display = 'none';
+            if (conn) conn.style.display = 'block';
+            var senderEl = document.getElementById('gmailSenderDisplay');
+            if (senderEl) senderEl.textContent = s.sender_email || '—';
+            var recipEl = document.getElementById('gmailRecipientInput');
+            if (recipEl) recipEl.value = s.recipient || '';
+            var sw = document.getElementById('gmailEnabledSwitch');
+            if (sw) sw.checked = s.enabled === true || s.enabled === 'true';
+            if (badge) {
+                badge.textContent = (s.enabled === true || s.enabled === 'true') ? 'ENABLED' : 'DISABLED';
+                badge.style.background = (s.enabled === true || s.enabled === 'true') ? '#16a34a' : '#6b7280';
+                badge.style.color = 'white';
+                badge.style.display = 'inline-block';
+            }
+        } else {
+            if (notConn) notConn.style.display = 'block';
+            if (conn) conn.style.display = 'none';
+            if (badge) badge.style.display = 'none';
+            // Show hint if Google credentials not configured
+            var btn = document.getElementById('btnConnectGmail');
+            if (btn && !s.has_client_id) {
+                btn.title = 'Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env first';
+            }
+        }
+        // Handle ?gmail_connected=1 redirect
+        if (window.location.search.includes('gmail_connected=1')) {
+            showNotification('Gmail connected successfully!');
+            history.replaceState(null, '', window.location.pathname);
+        }
+    } catch(e) {}
+}
+
+function connectGmail() {
+    fetch('/api/gmail-auth-url').then(function(r) {
+        return r.json().then(function(d) { return { ok: r.ok, data: d }; });
+    }).then(function(res) {
+        if (res.ok && res.data.auth_url) {
+            window.location.href = res.data.auth_url;
+        } else {
+            var msg = (res.data && (res.data.detail || res.data.message)) || 'Failed to get auth URL';
+            showNotification(msg, true);
+        }
+    }).catch(function() { showNotification('Error connecting Gmail', true); });
+}
+
+async function disconnectGmail() {
+    try {
+        var r = await fetch('/api/gmail-logout', { method: 'POST' });
+        if (r.ok) {
+            showNotification('Gmail disconnected');
+            loadGmailStatus();
+        }
+    } catch(e) { showNotification('Error disconnecting', true); }
+}
+
+async function saveGmailSettings() {
+    var recipEl = document.getElementById('gmailRecipientInput');
+    var sw = document.getElementById('gmailEnabledSwitch');
+    var recipient = recipEl ? recipEl.value.trim() : '';
+    var enabled = sw ? sw.checked : false;
+    try {
+        var r = await fetch('/api/gmail-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient: recipient, enabled: enabled })
+        });
+        if (r.ok) {
+            showNotification('Gmail settings saved');
+            loadGmailStatus();
+        } else {
+            var d = await r.json();
+            showNotification(d.detail || 'Failed to save settings', true);
+        }
+    } catch(e) { showNotification('Error saving settings', true); }
+}
+
+async function toggleGmailEnabled() {
+    var sw = document.getElementById('gmailEnabledSwitch');
+    var recipEl = document.getElementById('gmailRecipientInput');
+    var enabled = sw ? sw.checked : false;
+    var recipient = recipEl ? recipEl.value.trim() : '';
+    try {
+        var r = await fetch('/api/gmail-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient: recipient, enabled: enabled })
+        });
+        var badge = document.getElementById('gmailEnabledBadge');
+        if (r.ok && badge) {
+            badge.textContent = enabled ? 'ENABLED' : 'DISABLED';
+            badge.style.background = enabled ? '#16a34a' : '#6b7280';
+            badge.style.display = 'inline-block';
+        }
+    } catch(e) {}
+}
+
+// LEGACY stub kept for old references (replaced by loadGmailStatus)
+async function loadEmailSettings() {
+    try {
+        var r = await fetch('/api/email-settings');
+        if (!r.ok) return;
+        var s = await r.json();
+        var badge = document.getElementById('emailEnabledBadge');
+        var toEl = document.getElementById('emailToDisplay');
+        var smtpEl = document.getElementById('emailSmtpDisplay');
+        if (badge) {
+            badge.textContent = s.enabled ? 'ENABLED' : 'DISABLED';
+            badge.style.background = s.enabled ? '#1a5f2a' : '#6b7280';
+            badge.style.color = 'white';
+        }
+        if (toEl) toEl.textContent = s.email_to || '(not set)';
+        if (smtpEl) smtpEl.textContent = s.smtp_host ? s.smtp_host + ':' + s.smtp_port : '(not set)';
+    } catch(e) {}
+}
+
+// Send email report now (Gmail OAuth2)
+async function sendEmailNow() {
+    var btn = document.getElementById('btnSendEmail');
+    var statusEl = document.getElementById('emailStatusMsg');
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = 'Sending...';
+
+    try {
+        var dateInput = document.getElementById('activeDepreciationDate');
+        var date = dateInput && dateInput.value ? dateInput.value : getLocalDateStr();
+        var r = await fetch('/api/send-email?date=' + date, { method: 'POST' });
+        var data = await r.json();
+        if (r.ok && data.success) {
+            if (statusEl) statusEl.textContent = data.message;
+            showNotification('Email sent successfully!');
+        } else {
+            var msg = data.detail || data.message || 'Failed to send email';
+            if (statusEl) statusEl.textContent = msg;
+            showNotification(msg, true);
+        }
+    } catch(e) {
+        if (statusEl) statusEl.textContent = 'Error: ' + e.message;
+        showNotification('Email error: ' + e.message, true);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }

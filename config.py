@@ -11,6 +11,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sgcarmart_data.db")
 SCRAPING_SCHEDULE_HOUR = int(os.getenv("SCRAPING_SCHEDULE_HOUR", "6"))
 SCRAPING_SCHEDULE_MINUTE = int(os.getenv("SCRAPING_SCHEDULE_MINUTE", "0"))
 
+# Google OAuth2 settings (for Gmail API email sending)
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+APP_PORT = int(os.getenv("PORT", "3000"))
+GMAIL_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gmail_token.json")
+
 # Target vehicles to scrape (order and categories for table display)
 VEHICLE_CATEGORIES = {
     "10FT DIESEL": [

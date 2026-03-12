@@ -34,9 +34,9 @@ SEARCH_KEYWORDS_TRUCK = [
     "Isuzu NNR85",
     "Isuzu NHR",
     "Isuzu NJR",
-    "Mitsubishi FEA01",
-    "Mitsubishi FEB21",
-    "Kia 2500",
+    "Canter FEA01",
+    "Canter FEB21",
+    "Kia K2500",
 ]
 
 # VAN DIESEL + VAN PETROL keywords
@@ -51,8 +51,15 @@ SEARCH_KEYWORDS_VAN = [
     "Honda N-VAN",
 ]
 
+# BUS DIESEL keywords
+SEARCH_KEYWORDS_BUS = [
+    "Toyota Hiace Commuter",
+    "Toyota Coaster",
+    "Mitsubishi Rosa",
+]
+
 # Combined list
-SEARCH_KEYWORDS = SEARCH_KEYWORDS_TRUCK + SEARCH_KEYWORDS_VAN
+SEARCH_KEYWORDS = SEARCH_KEYWORDS_TRUCK + SEARCH_KEYWORDS_VAN + SEARCH_KEYWORDS_BUS
 
 
 def extract_year(reg_date: Optional[str]) -> Optional[int]:

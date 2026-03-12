@@ -782,6 +782,115 @@ async def export_depreciation_pdf(source: str = "active", date: Optional[str] = 
     return StreamingResponse(pdf_file, media_type="application/pdf",
                              headers={"Content-Disposition": f"attachment; filename={filename}"})
 
+@app.post("/api/send-email")
+async def send_email_report(date: Optional[str] = None, db: Session = Depends(get_db)):
+    """Manually trigger sending the daily report email with Excel + PDF attachments."""
+    from email_service import send_daily_report
+    import pytz
+    if not date:
+        date = datetime.now(pytz.timezone('Asia/Singapore')).strftime("%Y-%m-%d")
+    ok, msg = send_daily_report(db, date)
+    if ok:
+        return {"success": True, "message": msg}
+    raise HTTPException(status_code=500, detail=msg)
+
+
+@app.get("/api/gmail-status")
+async def gmail_status(db: Session = Depends(get_db)):
+    """Return Gmail OAuth2 connection status and email settings."""
+    from email_service import get_gmail_status, get_db_setting
+    status = get_gmail_status()
+    status['recipient'] = get_db_setting(db, 'gmail_recipient', '')
+    status['enabled'] = get_db_setting(db, 'gmail_enabled', 'false') == 'true'
+    status['has_client_id'] = bool(config.GOOGLE_CLIENT_ID)
+    return status
+
+
+@app.get("/api/gmail-auth-url")
+async def gmail_auth_url():
+    """Return Google OAuth2 authorization URL for the Gmail sign-in flow."""
+    if not config.GOOGLE_CLIENT_ID or not config.GOOGLE_CLIENT_SECRET:
+        raise HTTPException(400, "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET not set in .env")
+    from google_auth_oauthlib.flow import Flow
+    from email_service import GMAIL_SCOPES
+    flow = Flow.from_client_config(
+        {"web": {
+            "client_id": config.GOOGLE_CLIENT_ID,
+            "client_secret": config.GOOGLE_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }},
+        scopes=GMAIL_SCOPES,
+        redirect_uri=f"http://localhost:{config.APP_PORT}/api/gmail-callback",
+    )
+    auth_url, _ = flow.authorization_url(access_type='offline', prompt='consent')
+    return {"url": auth_url}
+
+
+@app.get("/api/gmail-callback")
+async def gmail_callback(code: str):
+    """Handle Google OAuth2 callback, exchange code for tokens, save to file."""
+    from google_auth_oauthlib.flow import Flow
+    from email_service import GMAIL_SCOPES, _save_token
+    from fastapi.responses import RedirectResponse as RR
+    import requests as req_lib
+
+    flow = Flow.from_client_config(
+        {"web": {
+            "client_id": config.GOOGLE_CLIENT_ID,
+            "client_secret": config.GOOGLE_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }},
+        scopes=GMAIL_SCOPES,
+        redirect_uri=f"http://localhost:{config.APP_PORT}/api/gmail-callback",
+    )
+    flow.fetch_token(code=code)
+    creds = flow.credentials
+
+    # Get sender email from Google userinfo
+    try:
+        resp = req_lib.get(
+            "https://www.googleapis.com/oauth2/v1/userinfo",
+            headers={"Authorization": f"Bearer {creds.token}"},
+            timeout=10,
+        )
+        sender_email = resp.json().get('email', '')
+    except Exception:
+        sender_email = ''
+
+    _save_token({
+        'token': creds.token,
+        'refresh_token': creds.refresh_token,
+        'sender_email': sender_email,
+    })
+    return RR(url="/?gmail_connected=1")
+
+
+@app.post("/api/gmail-logout")
+async def gmail_logout():
+    """Disconnect Gmail by deleting the stored token."""
+    import json
+    from email_service import _save_token
+    _save_token({})
+    return {"success": True}
+
+
+@app.post("/api/gmail-settings")
+async def update_gmail_settings(
+    recipient: Optional[str] = Body(None),
+    enabled: Optional[bool] = Body(None),
+    db: Session = Depends(get_db),
+):
+    """Update recipient email and enable/disable daily email sending."""
+    from email_service import set_db_setting
+    if recipient is not None:
+        set_db_setting(db, 'gmail_recipient', recipient.strip())
+    if enabled is not None:
+        set_db_setting(db, 'gmail_enabled', 'true' if enabled else 'false')
+    return {"success": True}
+
+
 @app.get("/api/statistics")
 async def get_statistics(db: Session = Depends(get_db)):
     """Get overall statistics"""
