@@ -972,6 +972,24 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
                 merged[combined][year]['count'] += data['count']
             del merged[individual]
 
+    # Merge years <= 2015 into "2015 & Older" bucket
+    for model in list(merged.keys()):
+        older_values = []
+        older_count = 0
+        years_to_remove = []
+        for year in list(merged[model].keys()):
+            try:
+                if int(year) <= 2015:
+                    older_values.extend(merged[model][year]['values'])
+                    older_count += merged[model][year]['count']
+                    years_to_remove.append(year)
+            except (ValueError, TypeError):
+                pass
+        for y in years_to_remove:
+            del merged[model][y]
+        if older_count > 0:
+            merged[model]["2015 & Older"] = {'values': older_values, 'count': older_count}
+
     final = {}
     for model, years_data in merged.items():
         final[model] = {}

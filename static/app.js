@@ -511,7 +511,8 @@ function toggleAndLoadSoldDepreciation() {
 function buildDepreciationTable(data, categories, dateStr) {
     var currentYear = new Date().getFullYear();
     var years = [];
-    for (var y = currentYear; y >= 2014; y--) { years.push(y); }
+    for (var y = currentYear; y >= 2016; y--) { years.push(y); }
+    years.push("2015 & Older");
 
     var d = new Date(dateStr + 'T00:00:00');
     var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];

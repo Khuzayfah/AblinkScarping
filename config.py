@@ -15,47 +15,58 @@ SCRAPING_SCHEDULE_MINUTE = int(os.getenv("SCRAPING_SCHEDULE_MINUTE", "0"))
 VEHICLE_CATEGORIES = {
     "10FT DIESEL": [
         "HINO DUTRO 2.8", "TOYOTA DYNA 2.8", "TOYOTA DYNA 3.0",
-        "NISSAN CABSTAR", "MITSUBISHI FEA01", "ISUZU NHR / ISUZU NJR", "KIA 2500"
+        "NISSAN CABSTAR", "CANTER FEA01", "ISUZU NHR / ISUZU NJR", "KIA K2500"
     ],
     "14FT DIESEL": [
         "HINO XZU710", "ISUZU NPR85", "ISUZU NMR85", "ISUZU NNR85",
-        "MITSUBISHI FEB21"
+        "CANTER FEB21"
     ],
     "VAN DIESEL (FILTER: GOODS VAN)": [
         "TOYOTA HIACE 3.0M", "TOYOTA HIACE 3.0A", "TOYOTA HIACE 2.8A",
-        "NISSAN NV350 2.5M", "NISSAN NV200 1.5M"
+        "NISSAN NV350 2.5", "NISSAN NV200 1.5M"
     ],
     "VAN PETROL (FILTER: GOODS VAN)": [
         "HONDA N-VAN", "TOYOTA HIACE 2.0", "NISSAN NV350 2.0",
-        "NISSAN NV200 1.6A"
+        "NISSAN NV200 1.6A", "NISSAN NV200 VANETTE 1.6"
+    ],
+    "BUS DIESEL (FILTER: BUS/MINI BUS , FUEL: DIESEL)": [
+        "TOYOTA HIACE COMMUTER 2.8A GL", "TOYOTA HIACE COMMUTER 3.0A GL",
+        "TOYOTA HIACE 3.0A", "TOYOTA COASTER", "MITSUBISHI ROSA"
     ]
 }
 
 # TARGET_VEHICLES list for matching scraped data
 # "ISUZU NHR" and "ISUZU NJR" are separate targets but combined in one display row
+# NOTE: More-specific COMMUTER targets must appear BEFORE their base variants
+# so they match first (before goods-van passenger exclusion can reject them)
 TARGET_VEHICLES = [
     "HINO DUTRO 2.8",
     "HINO XZU710",
     "TOYOTA DYNA 2.8",
     "TOYOTA DYNA 3.0",
     "TOYOTA HIACE 3.0M",
+    "TOYOTA HIACE COMMUTER 3.0A GL",  # before TOYOTA HIACE 3.0A
     "TOYOTA HIACE 3.0A",
+    "TOYOTA HIACE COMMUTER 2.8A GL",  # before TOYOTA HIACE 2.8A
     "TOYOTA HIACE 2.8A",
     "TOYOTA HIACE 2.0",
+    "TOYOTA COASTER",
     "NISSAN CABSTAR",
-    "NISSAN NV350 2.5M",
+    "NISSAN NV350 2.5",
     "NISSAN NV350 2.0",
     "NISSAN NV200 1.5M",
     "NISSAN NV200 1.6A",
+    "NISSAN NV200 VANETTE 1.6",
     "ISUZU NHR",
     "ISUZU NJR",
     "ISUZU NPR85",
     "ISUZU NMR85",
     "ISUZU NNR85",
-    "MITSUBISHI FEA01",
-    "MITSUBISHI FEB21",
-    "KIA 2500",
+    "CANTER FEA01",
+    "CANTER FEB21",
+    "KIA K2500",
     "HONDA N-VAN",
+    "MITSUBISHI ROSA",
 ]
 
 # SGCarMart URLs (site migrated to Next.js - new format)

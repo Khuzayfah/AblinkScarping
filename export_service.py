@@ -346,10 +346,10 @@ class ExportService:
     def _get_year_range():
         """Get year columns matching the web app."""
         current_year = datetime.now().year
-        years = list(range(current_year, 2013, -1))  # 2026..2014
-        year_labels = [str(y) for y in years]
-        year_keys = [str(y) for y in years]
-        return years, year_labels, year_keys
+        years = list(range(current_year, 2015, -1))  # 2026..2016
+        year_labels = [str(y) for y in years] + ["2015 & Older"]
+        year_keys = [str(y) for y in years] + ["2015 & Older"]
+        return years + ["2015 & Older"], year_labels, year_keys
 
     @staticmethod
     def _flatten_depreciation_data(dep_data, categories, date_str=""):
@@ -363,7 +363,7 @@ class ExportService:
                 row = {"Category": category, "Vehicle": vehicle}
                 total_units = 0
                 for label, key in zip(year_labels, year_keys):
-                    yd = vehicle_data.get(int(key)) or vehicle_data.get(key, {})
+                    yd = vehicle_data.get(key) or vehicle_data.get(int(key) if key.lstrip('-').isdigit() else key, {})
                     low = yd.get("lowest", 0) if yd else 0
                     avg = yd.get("average", 0) if yd else 0
                     cnt = yd.get("unit", 0) if yd else 0
@@ -540,8 +540,8 @@ class ExportService:
                 total_units = 0
                 col = 2
                 for label, key in zip(year_labels, year_keys):
-                    yd = vehicle_data.get(int(key) if key != "2014" else key) or \
-                         vehicle_data.get(key, {})
+                    yd = vehicle_data.get(key) or \
+                         vehicle_data.get(int(key) if key.lstrip('-').isdigit() else key, {})
                     low = yd.get("lowest", 0) if yd else 0
                     avg_val = yd.get("average", 0) if yd else 0
                     cnt = yd.get("unit", 0) if yd else 0
@@ -683,8 +683,8 @@ class ExportService:
                 total_units = 0
 
                 for label, key in zip(year_labels, year_keys):
-                    yd = vehicle_data.get(int(key) if key != "2014" else key) or \
-                         vehicle_data.get(key, {})
+                    yd = vehicle_data.get(key) or \
+                         vehicle_data.get(int(key) if key.lstrip('-').isdigit() else key, {})
                     low = yd.get("lowest", 0) if yd else 0
                     avg_val = yd.get("average", 0) if yd else 0
                     cnt = yd.get("unit", 0) if yd else 0
