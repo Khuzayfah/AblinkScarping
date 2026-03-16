@@ -58,8 +58,32 @@ SEARCH_KEYWORDS_BUS = [
     "Mitsubishi Rosa",
 ]
 
-# Combined list
+# Combined list (kept for backward compat)
 SEARCH_KEYWORDS = SEARCH_KEYWORDS_TRUCK + SEARCH_KEYWORDS_VAN + SEARCH_KEYWORDS_BUS
+
+# SGCarMart vehicle type path segment for each keyword group
+# e.g. /used-cars/listing/truck?q=... filters to Truck only
+KEYWORD_VEHICLE_TYPE = {}
+for _kw in SEARCH_KEYWORDS_TRUCK:
+    KEYWORD_VEHICLE_TYPE[_kw] = "truck"
+for _kw in SEARCH_KEYWORDS_VAN:
+    KEYWORD_VEHICLE_TYPE[_kw] = "van"
+for _kw in SEARCH_KEYWORDS_BUS:
+    KEYWORD_VEHICLE_TYPE[_kw] = "buses"
+
+# Full list of (keyword, vehicle_type_filter) pairs for searching.
+# Some Hiace keywords need BOTH van AND buses filters because SGCarMart
+# registers some non-Commuter Hiace as Bus/Mini Bus (not just Van).
+KEYWORD_SEARCHES = []
+for _kw in SEARCH_KEYWORDS_TRUCK:
+    KEYWORD_SEARCHES.append((_kw, "truck"))
+for _kw in SEARCH_KEYWORDS_VAN:
+    KEYWORD_SEARCHES.append((_kw, "van"))
+for _kw in SEARCH_KEYWORDS_BUS:
+    KEYWORD_SEARCHES.append((_kw, "buses"))
+# Additional bus-filter searches for Hiace models that appear under Bus/Mini Bus
+for _kw in ["Toyota Hiace 3.0", "Toyota Hiace 2.8", "Toyota Hiace 2.0"]:
+    KEYWORD_SEARCHES.append((_kw, "buses"))
 
 
 def extract_year(reg_date: Optional[str]) -> Optional[int]:
@@ -379,14 +403,17 @@ class SGCarMartJSScraper:
             logger.error(f"  Fetch error on {description}: {e}")
             return None
 
-    def _scrape_search_keyword(self, session, keyword: str, dealer_map: Dict[int, str]) -> List[Dict[str, Any]]:
+    def _scrape_search_keyword(self, session, keyword: str, dealer_map: Dict[int, str], vtype: str = None) -> List[Dict[str, Any]]:
         """Search for a specific keyword and extract all pages of results."""
         all_listings = []
         query = keyword.replace(' ', '+')
+        if vtype is None:
+            vtype = KEYWORD_VEHICLE_TYPE.get(keyword, "")
+        base_path = f"listing/{vtype}" if vtype else "listing"
 
         # First page with limit=100
-        url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&limit=100"
-        logger.info(f"  Searching: {keyword}")
+        url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&limit=100"
+        logger.info(f"  Searching: {keyword} (filter: {vtype or 'none'})")
 
         text = self._fetch_page(session, url, f"search '{keyword}' page 1")
         if not text:
@@ -414,7 +441,7 @@ class SGCarMartJSScraper:
 
             for page_num in range(2, total_pages + 1):
                 time.sleep(2)  # Be polite
-                page_url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&limit=100&page={page_num}"
+                page_url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&limit=100&page={page_num}"
                 page_text = self._fetch_page(session, page_url, f"search '{keyword}' page {page_num}")
                 if not page_text:
                     break
@@ -551,9 +578,9 @@ class SGCarMartJSScraper:
             logger.info("[3/4] Searching by keyword for commercial vehicles...")
             seen_urls = {(l.get('link', '').split('?')[0]) for l in all_raw_items if l.get('link')}
 
-            for keyword in SEARCH_KEYWORDS:
+            for keyword, vtype in KEYWORD_SEARCHES:
                 time.sleep(1.5)  # Rate limiting
-                keyword_items = self._scrape_search_keyword(session, keyword, global_dealer_map)
+                keyword_items = self._scrape_search_keyword(session, keyword, global_dealer_map, vtype=vtype)
 
                 # Add only new items
                 new_count = 0
@@ -675,11 +702,12 @@ class SGCarMartJSScraper:
             logger.info("[2/3] Searching SOLD listings by keyword...")
             seen_urls = set()
 
-            for keyword in SEARCH_KEYWORDS:
+            for keyword, vtype in KEYWORD_SEARCHES:
                 time.sleep(1.5)
                 query = keyword.replace(' ', '+')
-                url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&avl=s&limit=100"
-                logger.info(f"  Searching SOLD: {keyword}")
+                base_path = f"listing/{vtype}" if vtype else "listing"
+                url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&avl=s&limit=100"
+                logger.info(f"  Searching SOLD: {keyword} (filter: {vtype or 'none'})")
 
                 text = self._fetch_page(session, url, f"sold '{keyword}' page 1")
                 if not text:
@@ -712,7 +740,7 @@ class SGCarMartJSScraper:
                     total_pages = min(math.ceil(total / max(len(listings), 1)), 5)
                     for page_num in range(2, total_pages + 1):
                         time.sleep(2)
-                        page_url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&avl=s&limit=100&page={page_num}"
+                        page_url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&avl=s&limit=100&page={page_num}"
                         page_text = self._fetch_page(session, page_url, f"sold '{keyword}' page {page_num}")
                         if not page_text:
                             break
@@ -1210,10 +1238,11 @@ class SGCarMartJSScraper:
                 time.sleep(5)
 
                 # Search each keyword
-                for keyword in SEARCH_KEYWORDS:
+                for keyword, vtype in KEYWORD_SEARCHES:
                     query = keyword.replace(' ', '+')
-                    url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&limit=100"
-                    logger.info(f"  Playwright search: {keyword}")
+                    base_path = f"listing/{vtype}" if vtype else "listing"
+                    url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&limit=100"
+                    logger.info(f"  Playwright search: {keyword} (filter: {vtype or 'none'})")
 
                     try:
                         page.goto(url, wait_until="domcontentloaded", timeout=30000)
