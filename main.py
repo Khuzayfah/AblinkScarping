@@ -286,6 +286,7 @@ async def get_listings(
         model = _normalize_model(r.make_model)
         if not model:
             continue
+        model = config.TARGET_DISPLAY_NAMES.get(model, model)
         d = r.to_dict()
         d['matched_model'] = model
         # Enrich from ListingCache for empty fields
@@ -323,7 +324,7 @@ _PASSENGER_VAN_KEYWORDS = frozenset({'COMMUTER', 'CARAVAN', 'MICROBUS', 'URVAN'}
 
 def _normalize_model(name: str) -> Optional[str]:
     """Match listing make_model to TARGET_VEHICLES (case-insensitive).
-    Handles names like 'Toyota Dyna 150 3.0M (COE till 01/2031)' -> 'TOYOTA DYNA 3.0'
+    Handles names like 'Toyota Dyna 150 3.0M (COE till 01/2031)' -> 'TOYOTA DYNA 150 3.0'
     Also handles dirty names like 'Used Toyota Dyna 150 3.0MReg Date: ...$99,988'
     Goods Van passenger variants (Commuter, Caravan, Microbus, Urvan) are excluded.
     """
@@ -344,6 +345,8 @@ def _normalize_model(name: str) -> Optional[str]:
     n = re.sub(r'\s*\((?:COE|NEW|5-YR).*\)', '', n, flags=re.IGNORECASE).strip()
     # Remove intermediate model numbers like "150" in "DYNA 150 3.0M"
     n = re.sub(r'(\bDYNA)\s+\d+\s+', r'\1 ', n)
+    # Detect HIGH ROOF before stripping (needed for separate HIGH ROOF targets)
+    has_high_roof = 'HIGH ROOF' in n
     # "COMMUTER" suffix removal for Hiace matching (still match, but will be rejected for GOODS VAN below)
     n_no_commuter = re.sub(r'\bCOMMUTER\b', '', n).strip()
     n_no_commuter = re.sub(r'\s+', ' ', n_no_commuter)
@@ -355,25 +358,42 @@ def _normalize_model(name: str) -> Optional[str]:
 
     matched = None
 
+    # PASS 0: HIGH ROOF specific match (check before general matching)
+    # Any COMMUTER + HIGH ROOF listing matches the HIGH ROOF target by engine size
+    if has_high_roof and 'COMMUTER' in n:
+        for v in config.TARGET_VEHICLES:
+            vu = v.upper()
+            if 'HIGH ROOF' not in vu:
+                continue
+            # Match by engine size (e.g., 2.8A or 3.0A)
+            engine = re.search(r'(\d\.\d[AM]?)', vu)
+            if engine and engine.group(1) in n:
+                matched = v; break
+
     # PASS 1: Exact match (preserves A/M distinction like 3.0A vs 3.0M)
-    for v in config.TARGET_VEHICLES:
-        vu = v.upper()
-        if vu in n or n in vu:
-            matched = v; break
-        if vu in n_no_commuter or n_no_commuter in vu:
-            matched = v; break
-        if vu in n_clean or n_clean in vu:
-            matched = v; break
-        # Special: match "ISUZU NHR87A" to "ISUZU NHR"
-        if "ISUZU" in n and vu == "ISUZU NHR" and "NHR" in n:
-            matched = v; break
-        if "ISUZU" in n and vu == "ISUZU NJR" and "NJR" in n:
-            matched = v; break
+    if matched is None:
+        for v in config.TARGET_VEHICLES:
+            vu = v.upper()
+            if 'HIGH ROOF' in vu:
+                continue  # Skip HIGH ROOF targets in general matching (handled in PASS 0)
+            if vu in n or n in vu:
+                matched = v; break
+            if vu in n_no_commuter or n_no_commuter in vu:
+                matched = v; break
+            if vu in n_clean or n_clean in vu:
+                matched = v; break
+            # Special: match "ISUZU NHR87A" to "ISUZU NHR"
+            if "ISUZU" in n and vu == "ISUZU NHR" and "NHR" in n:
+                matched = v; break
+            if "ISUZU" in n and vu == "ISUZU NJR" and "NJR" in n:
+                matched = v; break
 
     # PASS 2: Transmission-agnostic fallback (A/M stripped)
     if matched is None:
         for v in config.TARGET_VEHICLES:
             vu = v.upper()
+            if 'HIGH ROOF' in vu:
+                continue
             vu_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', vu)
             if vu_no_trans and (vu_no_trans in n_no_trans or n_no_trans in vu_no_trans):
                 matched = v; break
@@ -411,6 +431,7 @@ def _build_daily_table(sold_rows: list, report_date: str) -> Dict[str, Any]:
         model = _normalize_model(row.make_model)
         if not model:
             continue
+        model = config.TARGET_DISPLAY_NAMES.get(model, model)
 
         dealer = (row.dealer_name or "–").strip()
         year = row.year_registered if row.year_registered else None
@@ -599,6 +620,7 @@ async def get_sgcarmart_sold(
         model = _normalize_model(r.make_model)
         if not model:
             continue
+        model = config.TARGET_DISPLAY_NAMES.get(model, model)
         # Enrich from ListingCache for empty fields
         d = r.to_dict()
         d['matched_model'] = model
@@ -927,9 +949,10 @@ async def get_statistics(db: Session = Depends(get_db)):
     }
 
 
-def _get_depreciation_data(source: str, date: Optional[str], db):
+def _get_depreciation_data(source: str, date: Optional[str], db, days: Optional[int] = None):
     """Shared logic for depreciation-by-year API and export endpoints.
     Returns dict: {date, source, total_rows, data: {model: {year: {lowest, average, unit}}}}
+    days: if provided, filter sold data to only include items from last N days
     """
     import re
 
@@ -944,7 +967,11 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
         next_date = target_date + timedelta(days=1)
 
     if source == "sold":
-        rows = db.query(SgcarmartSold).all()
+        query = db.query(SgcarmartSold)
+        if days:
+            cutoff_date = datetime.now() - timedelta(days=days)
+            query = query.filter(SgcarmartSold.scrape_date >= cutoff_date)
+        rows = query.all()
         year_field = 'year_registered'
         # Cache map keyed by listing_url_clean → full ListingCache object
         # (used for depreciation, year, dealer, price enrichment)
@@ -996,6 +1023,8 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
         model = _normalize_model(row.make_model)
         if not model:
             continue
+        # Apply display name mapping (e.g., "TOYOTA DYNA 3.0" -> "TOYOTA DYNA 150 3.0")
+        model = config.TARGET_DISPLAY_NAMES.get(model, model)
         year = getattr(row, year_field)
         # Try to fill year from ListingCache if missing
         if not year and source == "sold" and clean_url and cache_map:
@@ -1115,10 +1144,12 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
 
     logger.info(f"[DEPRECIATION-BY-YEAR] source={source}, models={len(final)}, skipped_no_dep={skipped_no_dep}")
 
+    date_label = target_date.isoformat() if source == "active" else ("last-" + str(days) + "-days" if days else "all-time")
     return {
-        "date": target_date.isoformat() if source == "active" else "all-time",
+        "date": date_label,
         "source": source,
         "total_rows": len(rows),
+        "days": days,
         "data": final
     }
 
@@ -1127,10 +1158,13 @@ def _get_depreciation_data(source: str, date: Optional[str], db):
 async def get_depreciation_by_year(
     date: Optional[str] = None,
     source: str = "active",
+    days: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
-    """Get depreciation aggregated by year and model"""
-    return _get_depreciation_data(source, date, db)
+    """Get depreciation aggregated by year and model.
+    days: filter sold data to last N days only (e.g., days=60 for last 60 days)
+    """
+    return _get_depreciation_data(source, date, db, days=days)
 
 
 # ============================================================

@@ -616,6 +616,90 @@ function buildDepreciationTable(data, categories, dateStr) {
     return html;
 }
 
+// Build sold count table (COUNT only, no LOW/AVG columns)
+function buildSoldCountTable(data, categories, dateStr) {
+    var currentYear = new Date().getFullYear();
+    var years = [];
+    for (var y = currentYear; y >= 2016; y--) { years.push(y); }
+    years.push("2015 & Older");
+
+    var d = new Date(dateStr + 'T00:00:00');
+    var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    var formattedDate = d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+
+    // Colors
+    var hdrBg = '#4472C4';
+    var hdrBorder = '#3a63a8';
+    var catBg = '#548235';
+    var catBorder = '#3d6128';
+    var cellBorder = '#B4C6E7';
+    var emptyCell = '-';
+    var countColBg = '#D6E4F0';
+
+    var yearGroupCount = years.length;
+    var catColSpan = 1 + yearGroupCount + 1;
+
+    var cs = 'text-align:center;padding:6px 5px;border:1px solid ' + cellBorder + ';';
+    var csNum = cs + 'font-size:0.82rem;font-weight:700;letter-spacing:0.3px;';
+
+    var html = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">';
+    html += '<table style="border-collapse:collapse;font-size:0.78rem;width:100%;min-width:900px;">';
+
+    // === TITLE ROW ===
+    html += '<tr>';
+    html += '<td style="background:#1f2937;color:white;font-weight:700;padding:10px 14px;border:1px solid ' + hdrBorder + ';white-space:nowrap;font-size:0.85rem;">AS OF: ' + formattedDate + '</td>';
+    html += '<td colspan="' + yearGroupCount + '" style="background:white;text-align:center;font-size:1.2rem;font-weight:800;letter-spacing:6px;padding:12px;border:1px solid ' + cellBorder + ';">L A S T &nbsp; 6 0 &nbsp; D A Y S &nbsp; S O L D &nbsp; V E H I C L E S</td>';
+    html += '<td style="background:white;border:1px solid ' + cellBorder + ';"></td>';
+    html += '</tr>';
+
+    // === YEAR HEADERS ===
+    html += '<tr>';
+    html += '<td style="background:' + hdrBg + ';color:white;font-weight:700;padding:8px 10px;border:1px solid ' + hdrBorder + ';text-align:center;vertical-align:middle;min-width:170px;font-size:0.82rem;"></td>';
+    years.forEach(function(year) {
+        html += '<td style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:8px 6px;border:1px solid ' + hdrBorder + ';font-size:0.88rem;">' + year + '</td>';
+    });
+    html += '<td style="background:' + hdrBg + ';color:white;font-weight:700;text-align:center;padding:8px 6px;border:1px solid ' + hdrBorder + ';vertical-align:middle;white-space:nowrap;font-size:0.82rem;">TOTAL<br>UNITS</td>';
+    html += '</tr>';
+
+    // === DATA ROWS ===
+    for (var category in categories) {
+        if (!categories.hasOwnProperty(category)) continue;
+
+        html += '<tr>';
+        html += '<td colspan="' + catColSpan + '" style="background:' + catBg + ';color:white;font-weight:700;padding:9px 16px;text-align:left;border:1px solid ' + catBorder + ';font-size:0.85rem;letter-spacing:0.5px;">' + category + '</td>';
+        html += '</tr>';
+
+        var models = categories[category];
+        var rowIdx = 0;
+        models.forEach(function(vehicle) {
+            var vehicleData = data[vehicle] || {};
+            var rowBg = rowIdx % 2 === 0 ? '#FFFFFF' : '#F2F7FC';
+            rowIdx++;
+
+            html += '<tr style="background:' + rowBg + ';">';
+            html += '<td style="text-align:left;font-weight:700;padding:6px 10px;border:1px solid ' + cellBorder + ';white-space:nowrap;font-size:0.8rem;color:#1e3a5f;">' + vehicle + '</td>';
+
+            var totalUnits = 0;
+
+            years.forEach(function(year) {
+                var yd = vehicleData[year] || vehicleData[String(year)];
+                if (yd && yd.unit) {
+                    totalUnits += yd.unit;
+                    html += '<td style="' + csNum + 'background:' + countColBg + ';color:#1f2937;">' + yd.unit + '</td>';
+                } else {
+                    html += '<td style="' + cs + 'background:' + countColBg + ';color:#d1d5db;">' + emptyCell + '</td>';
+                }
+            });
+
+            html += '<td style="text-align:center;font-weight:800;padding:6px 8px;border:1px solid ' + cellBorder + ';background:#E2EFDA;font-size:0.88rem;color:#1a5f2a;">' + totalUnits + '</td>';
+            html += '</tr>';
+        });
+    }
+
+    html += '</table></div>';
+    return html;
+}
+
 // Export depreciation table data
 function exportDepreciationTable(source, format) {
     var dateInput = document.getElementById('activeDepreciationDate');
@@ -669,16 +753,15 @@ async function loadActiveDepreciationTable() {
     }
 }
 
-// Load sold listings depreciation table (ALL-TIME accumulated sold data)
+// Load sold listings count table (last 60 days)
 async function loadSoldDepreciationTable() {
     var container = document.getElementById('soldDepreciationContainer');
     container.innerHTML = '<div class="sold-log-empty">Loading...</div>';
 
     try {
-        // Fetch depreciation data and categories in parallel
-        // Note: sold source uses ALL accumulated sold data (all-time), no date filter
+        // Fetch sold data (last 60 days) and categories in parallel
         var [depRes, catRes] = await Promise.all([
-            fetch('/api/depreciation-by-year?source=sold'),
+            fetch('/api/depreciation-by-year?source=sold&days=60'),
             fetch('/api/vehicle-categories')
         ]);
 
@@ -688,15 +771,15 @@ async function loadSoldDepreciationTable() {
         var categories = await catRes.json();
 
         if (Object.keys(result.data).length === 0) {
-            container.innerHTML = '<div class="sold-log-empty">No sold depreciation data available. Click REFRESH DATA to scrape SGCarMart sold listings.</div>';
+            container.innerHTML = '<div class="sold-log-empty">No sold data in the last 60 days. Click REFRESH DATA to scrape SGCarMart sold listings.</div>';
             return;
         }
 
-        // Use today's date for display since it's current accumulated data
+        // Use today's date for display
         var today = getLocalDateStr();
-        container.innerHTML = buildDepreciationTable(result.data, categories.categories, today);
+        container.innerHTML = buildSoldCountTable(result.data, categories.categories, today);
 
-        // Show stats and sync the all-time sold badge with dep table total
+        // Show stats
         var totalModels = Object.keys(result.data).length;
         var totalUnits = 0;
         for (var model in result.data) {
@@ -704,20 +787,19 @@ async function loadSoldDepreciationTable() {
                 totalUnits += result.data[model][year].unit || 0;
             }
         }
-        // Sync badge AND raw table info so all-time raw table and dep table show the same total
+        // Sync badge
         var soldBadge = document.getElementById('soldLogCountBadge');
         if (soldBadge && totalUnits > 0) {
-            soldBadge.textContent = totalUnits + ' total';
+            soldBadge.textContent = totalUnits + ' (60d)';
             soldBadge.style.display = 'inline-block';
         }
-        // Update raw sold table info text to match dep table total (eliminate contradiction)
-        var soldInfo = document.getElementById('soldLogInfo');
-        if (soldInfo && totalUnits > 0) {
-            soldInfo.textContent = 'Total: ' + totalUnits + ' matched target vehicles (all-time)';
+        var soldInfo = document.getElementById('soldDepreciationInfo');
+        if (soldInfo) {
+            soldInfo.textContent = 'Total: ' + totalUnits + ' sold vehicles in last 60 days';
         }
-        showNotification('Loaded sold depreciation: ' + totalUnits + ' units across ' + totalModels + ' models (all-time accumulated)');
+        showNotification('Loaded sold count: ' + totalUnits + ' units across ' + totalModels + ' models (last 60 days)');
     } catch (e) {
-        container.innerHTML = '<div class="sold-log-empty">Error loading sold depreciation table: ' + e.message + '</div>';
+        container.innerHTML = '<div class="sold-log-empty">Error loading sold count table: ' + e.message + '</div>';
     }
 }
 

@@ -61,29 +61,58 @@ SEARCH_KEYWORDS_BUS = [
 # Combined list (kept for backward compat)
 SEARCH_KEYWORDS = SEARCH_KEYWORDS_TRUCK + SEARCH_KEYWORDS_VAN + SEARCH_KEYWORDS_BUS
 
-# SGCarMart vehicle type path segment for each keyword group
-# e.g. /used-cars/listing/truck?q=... filters to Truck only
-KEYWORD_VEHICLE_TYPE = {}
-for _kw in SEARCH_KEYWORDS_TRUCK:
-    KEYWORD_VEHICLE_TYPE[_kw] = "truck"
-for _kw in SEARCH_KEYWORDS_VAN:
-    KEYWORD_VEHICLE_TYPE[_kw] = "van"
-for _kw in SEARCH_KEYWORDS_BUS:
-    KEYWORD_VEHICLE_TYPE[_kw] = "buses"
+# SGCarMart vehicle type IDs for query parameter filtering (vts[])
+# Using query params instead of path slugs so fuel filter (fue=) also works.
+# Path slugs like /listing/van block the fue= parameter from taking effect.
+VTYPE_TRUCK = "5"
+VTYPE_VAN = "4"
+VTYPE_BUS = "14"
 
-# Full list of (keyword, vehicle_type_filter) pairs for searching.
-# Some Hiace keywords need BOTH van AND buses filters because SGCarMart
+# Full list of (keyword, vtype_id, fuel_filter) tuples for searching.
+# vtype_id: SGCarMart vehicle type ID for vts[] param
+# fuel_filter: "Diesel", "Petrol", or None (no fuel filter)
+# Some keywords (NV350, NV200) need both Diesel and Petrol searches.
+# Some Hiace keywords need BOTH van AND bus searches because SGCarMart
 # registers some non-Commuter Hiace as Bus/Mini Bus (not just Van).
 KEYWORD_SEARCHES = []
+
+# Trucks - all diesel
 for _kw in SEARCH_KEYWORDS_TRUCK:
-    KEYWORD_SEARCHES.append((_kw, "truck"))
-for _kw in SEARCH_KEYWORDS_VAN:
-    KEYWORD_SEARCHES.append((_kw, "van"))
+    KEYWORD_SEARCHES.append((_kw, VTYPE_TRUCK, "Diesel"))
+
+# Vans - diesel keywords
+for _kw in ["Toyota Hiace 3.0", "Toyota Hiace 2.8"]:
+    KEYWORD_SEARCHES.append((_kw, VTYPE_VAN, "Diesel"))
+# Vans - petrol keywords
+for _kw in ["Toyota Hiace 2.0", "Honda N-VAN"]:
+    KEYWORD_SEARCHES.append((_kw, VTYPE_VAN, "Petrol"))
+# Vans - both diesel and petrol (NV350 has 2.5 diesel + 2.0 petrol, NV200 has 1.5M diesel + 1.6A petrol)
+for _kw in ["Nissan NV350", "Nissan NV200"]:
+    KEYWORD_SEARCHES.append((_kw, VTYPE_VAN, "Diesel"))
+    KEYWORD_SEARCHES.append((_kw, VTYPE_VAN, "Petrol"))
+
+# Buses - all diesel
 for _kw in SEARCH_KEYWORDS_BUS:
-    KEYWORD_SEARCHES.append((_kw, "buses"))
-# Additional bus-filter searches for Hiace models that appear under Bus/Mini Bus
-for _kw in ["Toyota Hiace 3.0", "Toyota Hiace 2.8", "Toyota Hiace 2.0"]:
-    KEYWORD_SEARCHES.append((_kw, "buses"))
+    KEYWORD_SEARCHES.append((_kw, VTYPE_BUS, "Diesel"))
+# Additional bus searches for Hiace models that appear under Bus/Mini Bus
+for _kw in ["Toyota Hiace 3.0", "Toyota Hiace 2.8"]:
+    KEYWORD_SEARCHES.append((_kw, VTYPE_BUS, "Diesel"))
+for _kw in ["Toyota Hiace 2.0"]:
+    KEYWORD_SEARCHES.append((_kw, VTYPE_BUS, "Petrol"))
+
+
+def _build_search_url(query: str, vtype_id: str, fuel: str = None,
+                      avl: str = None, page: int = None) -> str:
+    """Build SGCarMart search URL using query parameters (not path slugs).
+    Path slugs block the fue= parameter, so we use vts[] instead."""
+    url = f"https://www.sgcarmart.com/used-cars/listing?q={query}&vts[]={vtype_id}&limit=100"
+    if fuel:
+        url += f"&fue={fuel}"
+    if avl:
+        url += f"&avl={avl}"
+    if page and page > 1:
+        url += f"&page={page}"
+    return url
 
 
 def extract_year(reg_date: Optional[str]) -> Optional[int]:
@@ -403,17 +432,21 @@ class SGCarMartJSScraper:
             logger.error(f"  Fetch error on {description}: {e}")
             return None
 
-    def _scrape_search_keyword(self, session, keyword: str, dealer_map: Dict[int, str], vtype: str = None) -> List[Dict[str, Any]]:
+    def _scrape_search_keyword(self, session, keyword: str, dealer_map: Dict[int, str],
+                               vtype: str = None, vtype_id: str = None, fuel: str = None) -> List[Dict[str, Any]]:
         """Search for a specific keyword and extract all pages of results."""
         all_listings = []
         query = keyword.replace(' ', '+')
-        if vtype is None:
-            vtype = KEYWORD_VEHICLE_TYPE.get(keyword, "")
-        base_path = f"listing/{vtype}" if vtype else "listing"
 
-        # First page with limit=100
-        url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&limit=100"
-        logger.info(f"  Searching: {keyword} (filter: {vtype or 'none'})")
+        # Build URL using query params (vts[] + fue) for proper filtering
+        if vtype_id:
+            url = _build_search_url(query, vtype_id, fuel=fuel)
+        else:
+            # Legacy path-based fallback
+            base_path = f"listing/{vtype}" if vtype else "listing"
+            url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&limit=100"
+        fuel_label = f", fuel: {fuel}" if fuel else ""
+        logger.info(f"  Searching: {keyword} (vtype: {vtype_id or vtype or 'none'}{fuel_label})")
 
         text = self._fetch_page(session, url, f"search '{keyword}' page 1")
         if not text:
@@ -441,7 +474,10 @@ class SGCarMartJSScraper:
 
             for page_num in range(2, total_pages + 1):
                 time.sleep(2)  # Be polite
-                page_url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&limit=100&page={page_num}"
+                if vtype_id:
+                    page_url = _build_search_url(query, vtype_id, fuel=fuel, page=page_num)
+                else:
+                    page_url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&limit=100&page={page_num}"
                 page_text = self._fetch_page(session, page_url, f"search '{keyword}' page {page_num}")
                 if not page_text:
                     break
@@ -578,9 +614,9 @@ class SGCarMartJSScraper:
             logger.info("[3/4] Searching by keyword for commercial vehicles...")
             seen_urls = {(l.get('link', '').split('?')[0]) for l in all_raw_items if l.get('link')}
 
-            for keyword, vtype in KEYWORD_SEARCHES:
+            for keyword, vtype_id, fuel in KEYWORD_SEARCHES:
                 time.sleep(1.5)  # Rate limiting
-                keyword_items = self._scrape_search_keyword(session, keyword, global_dealer_map, vtype=vtype)
+                keyword_items = self._scrape_search_keyword(session, keyword, global_dealer_map, vtype_id=vtype_id, fuel=fuel)
 
                 # Add only new items
                 new_count = 0
@@ -702,12 +738,12 @@ class SGCarMartJSScraper:
             logger.info("[2/3] Searching SOLD listings by keyword...")
             seen_urls = set()
 
-            for keyword, vtype in KEYWORD_SEARCHES:
+            for keyword, vtype_id, fuel in KEYWORD_SEARCHES:
                 time.sleep(1.5)
                 query = keyword.replace(' ', '+')
-                base_path = f"listing/{vtype}" if vtype else "listing"
-                url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&avl=s&limit=100"
-                logger.info(f"  Searching SOLD: {keyword} (filter: {vtype or 'none'})")
+                url = _build_search_url(query, vtype_id, fuel=fuel, avl='s')
+                fuel_label = f", fuel: {fuel}" if fuel else ""
+                logger.info(f"  Searching SOLD: {keyword} (vtype: {vtype_id}{fuel_label})")
 
                 text = self._fetch_page(session, url, f"sold '{keyword}' page 1")
                 if not text:
@@ -740,7 +776,7 @@ class SGCarMartJSScraper:
                     total_pages = min(math.ceil(total / max(len(listings), 1)), 5)
                     for page_num in range(2, total_pages + 1):
                         time.sleep(2)
-                        page_url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&avl=s&limit=100&page={page_num}"
+                        page_url = _build_search_url(query, vtype_id, fuel=fuel, avl='s', page=page_num)
                         page_text = self._fetch_page(session, page_url, f"sold '{keyword}' page {page_num}")
                         if not page_text:
                             break
@@ -1238,11 +1274,11 @@ class SGCarMartJSScraper:
                 time.sleep(5)
 
                 # Search each keyword
-                for keyword, vtype in KEYWORD_SEARCHES:
+                for keyword, vtype_id, fuel in KEYWORD_SEARCHES:
                     query = keyword.replace(' ', '+')
-                    base_path = f"listing/{vtype}" if vtype else "listing"
-                    url = f"https://www.sgcarmart.com/used-cars/{base_path}?q={query}&limit=100"
-                    logger.info(f"  Playwright search: {keyword} (filter: {vtype or 'none'})")
+                    url = _build_search_url(query, vtype_id, fuel=fuel)
+                    fuel_label = f", fuel: {fuel}" if fuel else ""
+                    logger.info(f"  Playwright search: {keyword} (vtype: {vtype_id}{fuel_label})")
 
                     try:
                         page.goto(url, wait_until="domcontentloaded", timeout=30000)

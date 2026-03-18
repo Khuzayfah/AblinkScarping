@@ -1062,22 +1062,22 @@
                 </div>
             </div>
 
-            <!-- Depreciation / Units Table: Sold Listings (ALL-TIME from SGCarMart) -->
+            <!-- Sold Listings - Last 60 Days Count Table -->
             <div class="data-log-section">
                 <div class="data-log-header log-sold" onclick="toggleAndLoadSoldDepreciation()">
                     <h4>
                         <i class="bi bi-chevron-right" id="soldDepreciationIcon"></i>
-                        <i class="bi bi-graph-down"></i> Sold Listings - Depreciation / Units by Year
-                        <span class="badge bg-warning text-dark ms-2" style="font-size:0.7rem;">ALL-TIME</span>
+                        <i class="bi bi-cart-x"></i> Sold Listings - Last 60 Days Sold Vehicles
+                        <span class="badge bg-warning text-dark ms-2" style="font-size:0.7rem;">LAST 60 DAYS</span>
                     </h4>
-                    <small class="text-muted">SGCarMart accumulated sold data (click to expand & load)</small>
+                    <small class="text-muted">SGCarMart sold vehicles count (last 60 days)</small>
                 </div>
                 <div id="soldDepreciationBody" class="data-log-body" style="display:none;">
                     <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
                         <button class="btn btn-sm btn-outline-primary" onclick="loadSoldDepreciationTable()">
                             <i class="bi bi-arrow-clockwise"></i> Refresh Data
                         </button>
-                        <span class="small text-muted" id="soldDepreciationInfo">Shows all accumulated sold vehicles from SGCarMart</span>
+                        <span class="small text-muted" id="soldDepreciationInfo">Shows sold vehicle counts from last 60 days</span>
                         <div class="ms-auto d-flex gap-1">
                             <button class="btn btn-sm btn-outline-success" onclick="exportDepreciationTable('sold','csv')"><i class="bi bi-file-earmark-spreadsheet"></i> CSV</button>
                             <button class="btn btn-sm btn-outline-success" onclick="exportDepreciationTable('sold','excel')"><i class="bi bi-file-earmark-excel"></i> Excel</button>

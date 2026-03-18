@@ -33,26 +33,45 @@ def _normalize_model(name):
         if idx > 0:
             n = n[:idx]
     n = re.sub(r'\s*\((?:COE|NEW|5-YR).*\)', '', n, flags=re.IGNORECASE).strip()
+    # Remove intermediate model numbers like "150" in "DYNA 150 3.0M"
     n = re.sub(r'(\bDYNA)\s+\d+\s+', r'\1 ', n)
+    # Detect HIGH ROOF before stripping (needed for separate HIGH ROOF targets)
+    has_high_roof = 'HIGH ROOF' in n
     n_clean = re.sub(r'\bCOMMUTER\b', '', n).strip()
     n_clean = re.sub(r'\s+', ' ', n_clean)
     n_clean = re.sub(r'\s+(DX|GL|HIGH ROOF).*$', '', n_clean).strip()
     n_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', n_clean)
 
     matched = None
-    for v in TARGET_VEHICLES:
-        vu = v.upper()
-        vu_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', vu)
-        if vu in n or n in vu:
-            matched = v; break
-        if vu in n_clean or n_clean in vu:
-            matched = v; break
-        if vu_no_trans and (vu_no_trans in n_no_trans or n_no_trans in vu_no_trans):
-            matched = v; break
-        if "ISUZU" in n and ("NHR" in vu and "NHR" in n):
-            matched = v; break
-        if "ISUZU" in n and ("NJR" in vu and "NJR" in n):
-            matched = v; break
+
+    # PASS 0: HIGH ROOF specific match
+    # Any COMMUTER + HIGH ROOF listing matches the HIGH ROOF target by engine size
+    if has_high_roof and 'COMMUTER' in n:
+        for v in TARGET_VEHICLES:
+            vu = v.upper()
+            if 'HIGH ROOF' not in vu:
+                continue
+            engine = re.search(r'(\d\.\d[AM]?)', vu)
+            if engine and engine.group(1) in n:
+                matched = v; break
+
+    # PASS 1: Exact match
+    if matched is None:
+        for v in TARGET_VEHICLES:
+            vu = v.upper()
+            if 'HIGH ROOF' in vu:
+                continue
+            vu_no_trans = re.sub(r'(\d\.\d)[AM]\b', r'\1', vu)
+            if vu in n or n in vu:
+                matched = v; break
+            if vu in n_clean or n_clean in vu:
+                matched = v; break
+            if vu_no_trans and (vu_no_trans in n_no_trans or n_no_trans in vu_no_trans):
+                matched = v; break
+            if "ISUZU" in n and ("NHR" in vu and "NHR" in n):
+                matched = v; break
+            if "ISUZU" in n and ("NJR" in vu and "NJR" in n):
+                matched = v; break
 
     if matched is None:
         return None

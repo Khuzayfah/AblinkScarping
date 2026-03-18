@@ -20,7 +20,7 @@ GMAIL_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gma
 # Target vehicles to scrape (order and categories for table display)
 VEHICLE_CATEGORIES = {
     "10FT DIESEL": [
-        "HINO DUTRO 2.8", "TOYOTA DYNA 2.8", "TOYOTA DYNA 3.0",
+        "HINO DUTRO 2.8", "TOYOTA DYNA 2.8", "TOYOTA DYNA 150 3.0",
         "NISSAN CABSTAR", "CANTER FEA01", "ISUZU NHR / ISUZU NJR", "KIA K2500"
     ],
     "14FT DIESEL": [
@@ -37,7 +37,8 @@ VEHICLE_CATEGORIES = {
     ],
     "BUS DIESEL (FILTER: BUS/MINI BUS , FUEL: DIESEL)": [
         "TOYOTA HIACE COMMUTER 2.8A GL", "TOYOTA HIACE COMMUTER 3.0A GL",
-        "TOYOTA HIACE 3.0A", "TOYOTA COASTER", "MITSUBISHI ROSA"
+        "TOYOTA HIACE COMMUTER 2.8A GL HIGH ROOF", "TOYOTA HIACE COMMUTER 3.0A GL HIGH ROOF",
+        "TOYOTA COASTER", "MITSUBISHI ROSA"
     ]
 }
 
@@ -51,8 +52,10 @@ TARGET_VEHICLES = [
     "TOYOTA DYNA 2.8",
     "TOYOTA DYNA 3.0",
     "TOYOTA HIACE 3.0M",
+    "TOYOTA HIACE COMMUTER 3.0A GL HIGH ROOF",  # before non-HIGH ROOF variant
     "TOYOTA HIACE COMMUTER 3.0A GL",  # before TOYOTA HIACE 3.0A
     "TOYOTA HIACE 3.0A",
+    "TOYOTA HIACE COMMUTER 2.8A GL HIGH ROOF",  # before non-HIGH ROOF variant
     "TOYOTA HIACE COMMUTER 2.8A GL",  # before TOYOTA HIACE 2.8A
     "TOYOTA HIACE 2.8A",
     "TOYOTA HIACE 2.0",
@@ -74,6 +77,12 @@ TARGET_VEHICLES = [
     "HONDA N-VAN",
     "MITSUBISHI ROSA",
 ]
+
+# Display name mapping: TARGET_VEHICLES name -> VEHICLE_CATEGORIES display name
+# Used when the normalized matching name differs from the display name
+TARGET_DISPLAY_NAMES = {
+    "TOYOTA DYNA 3.0": "TOYOTA DYNA 150 3.0",
+}
 
 # SGCarMart URLs (site migrated to Next.js - new format)
 BASE_URL = "https://www.sgcarmart.com"
