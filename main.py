@@ -370,6 +370,20 @@ def _normalize_model(name: str) -> Optional[str]:
             if engine and engine.group(1) in n:
                 matched = v; break
 
+    # PASS 0.5: COMMUTER (non-HIGH ROOF) specific match
+    # "Commuter 3.0A DX" must match "COMMUTER 3.0A GL" target, not "HIACE 3.0A" goods van.
+    # Without this, n_no_commuter strips COMMUTER and mis-matches the goods van target,
+    # which then gets rejected by passenger exclusion → data silently lost.
+    # Uses base engine size (e.g., "3.0") so 3.0M also matches 3.0A target.
+    if matched is None and 'COMMUTER' in n and not has_high_roof:
+        for v in config.TARGET_VEHICLES:
+            vu = v.upper()
+            if 'HIGH ROOF' in vu or 'COMMUTER' not in vu:
+                continue
+            engine = re.search(r'(\d\.\d)', vu)
+            if engine and engine.group(1) in n:
+                matched = v; break
+
     # PASS 1: Exact match (preserves A/M distinction like 3.0A vs 3.0M)
     if matched is None:
         for v in config.TARGET_VEHICLES:
