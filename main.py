@@ -1,6 +1,6 @@
 """Main FastAPI application - Ablink SGCarmart Scraper"""
 import logging
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Body, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Body, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -1499,8 +1499,9 @@ async def restore_backup(file: UploadFile = File(...)):
 # ============================================================
 
 @app.get("/api/v1/openapi.json", include_in_schema=False)
-async def v1_openapi_spec():
+async def v1_openapi_spec(request: Request):
     """OpenAPI 3.0 spec for API v1 — compatible with ChatGPT Actions, Claude Projects, and any AI agent"""
+    base = str(request.base_url).rstrip("/")
     return {
         "openapi": "3.0.0",
         "info": {
@@ -1513,7 +1514,7 @@ async def v1_openapi_spec():
             ),
             "contact": {"name": "SingRank.com", "url": "https://singrank.com"}
         },
-        "servers": [{"url": "/api/v1", "description": "Production"}],
+        "servers": [{"url": f"{base}/api/v1", "description": "Production"}],
         "paths": {
             "/status": {
                 "get": {
