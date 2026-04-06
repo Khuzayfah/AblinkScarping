@@ -244,40 +244,71 @@ async function loadDailyReport() {
     }
 }
 
+var SCRAPE_ESTIMATE_SECS = 300; // 5 minutes baseline
+var SCRAPE_PHASES = [
+    { at: 0,   label: 'Initialising scraper...' },
+    { at: 15,  label: 'Connecting to SGCarMart.com...' },
+    { at: 40,  label: 'Fetching active listings (page 1–5)...' },
+    { at: 90,  label: 'Fetching active listings (page 6–12)...' },
+    { at: 150, label: 'Fetching active listings (page 13–20)...' },
+    { at: 210, label: 'Processing detail pages & cache...' },
+    { at: 255, label: 'Detecting sold vehicles...' },
+    { at: 280, label: 'Writing to database...' },
+    { at: 295, label: 'Finalising report...' }
+];
+
+function _fmt(s) {
+    var m = Math.floor(s / 60), sec = s % 60;
+    return m + ':' + (sec < 10 ? '0' : '') + sec;
+}
+
 function showScrapingOverlay() {
     var overlay = document.getElementById('scrapingOverlay');
-    var timerEl = document.getElementById('scrapeTimer');
+    var elapsedEl = document.getElementById('scrapeElapsed');
+    var remainEl = document.getElementById('scrapeRemaining');
     var bar = document.getElementById('scrapeProgressBar');
+    var phaseEl = document.getElementById('scrapePhaseLabel');
     if (!overlay) return;
     overlay.classList.add('active');
-    // Timer
     var seconds = 0;
     window._scrapeTimerInterval = setInterval(function () {
         seconds++;
-        var m = Math.floor(seconds / 60);
-        var s = seconds % 60;
-        if (timerEl) timerEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
-        // Progress bar: fills to ~95% over 5 minutes (300s)
-        var pct = Math.min(95, (seconds / 300) * 95);
+        // Elapsed
+        if (elapsedEl) elapsedEl.textContent = _fmt(seconds);
+        // Remaining (counts down from estimate, but never goes below 0:05)
+        var remaining = Math.max(5, SCRAPE_ESTIMATE_SECS - seconds);
+        if (remainEl) remainEl.textContent = '~' + _fmt(remaining);
+        // Progress bar: asymptotic — fast early, slows near 95%
+        var pct = Math.min(95, 95 * (1 - Math.exp(-seconds / 240)));
         if (bar) bar.style.width = pct + '%';
+        // Phase label
+        var phase = SCRAPE_PHASES[0].label;
+        for (var i = 0; i < SCRAPE_PHASES.length; i++) {
+            if (seconds >= SCRAPE_PHASES[i].at) phase = SCRAPE_PHASES[i].label;
+        }
+        if (phaseEl) phaseEl.textContent = phase;
     }, 1000);
 }
 
 function hideScrapingOverlay() {
     var overlay = document.getElementById('scrapingOverlay');
     var bar = document.getElementById('scrapeProgressBar');
+    var phaseEl = document.getElementById('scrapePhaseLabel');
     if (overlay) overlay.classList.remove('active');
-    if (bar) bar.style.width = '100%';
+    if (bar) { bar.style.transition = 'width .3s'; bar.style.width = '100%'; }
+    if (phaseEl) phaseEl.textContent = 'Done!';
     if (window._scrapeTimerInterval) {
         clearInterval(window._scrapeTimerInterval);
         window._scrapeTimerInterval = null;
     }
-    // Reset after short delay
     setTimeout(function () {
-        var timerEl = document.getElementById('scrapeTimer');
-        if (timerEl) timerEl.textContent = '0:00';
-        if (bar) bar.style.width = '0%';
-    }, 600);
+        var elapsedEl = document.getElementById('scrapeElapsed');
+        var remainEl = document.getElementById('scrapeRemaining');
+        if (elapsedEl) elapsedEl.textContent = '0:00';
+        if (remainEl) remainEl.textContent = '~5:00';
+        if (bar) { bar.style.transition = 'none'; bar.style.width = '0%'; }
+        if (phaseEl) phaseEl.textContent = 'Initialising...';
+    }, 800);
 }
 
 async function triggerScrape() {

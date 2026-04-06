@@ -1272,62 +1272,61 @@
                 </div>
                 <div id="guideBody" class="guide-body" style="display:none;">
 
-                    <h4><i class="bi bi-diagram-3"></i> System Flow</h4>
+                    <h4><i class="bi bi-diagram-3"></i> How It Works — 3-Step Process</h4>
                     <div class="guide-flow">
                         <div class="guide-flow-step step-scrape">
                             <i class="step-icon bi bi-cloud-download text-primary"></i>
                             <div class="step-title">1. SCRAPE</div>
-                            <div class="step-desc">Fetch all active commercial vehicle listings from SGCarMart.com<br>(~900+ vehicles daily)</div>
+                            <div class="step-desc">Fetches all active commercial vehicle listings from SGCarMart.com using a Cloudflare-bypass scraper. Saves each listing's model, year, price, depreciation, and dealer. Takes ~3–5 minutes.</div>
                         </div>
                         <div class="guide-flow-arrow"><i class="bi bi-arrow-right"></i></div>
                         <div class="guide-flow-step step-compare">
                             <i class="step-icon bi bi-arrow-left-right text-warning"></i>
                             <div class="step-title">2. COMPARE</div>
-                            <div class="step-desc">Compare today's listings with yesterday's.<br>Any listing that <b>disappeared</b> = vehicle was sold.</div>
+                            <div class="step-desc">Compares today's listing URLs against yesterday's. Any URL present yesterday but missing today = vehicle sold or delisted. Data is matched from the Listing Cache (captured while still active).</div>
                         </div>
                         <div class="guide-flow-arrow"><i class="bi bi-arrow-right"></i></div>
                         <div class="guide-flow-step step-sold">
                             <i class="step-icon bi bi-check-circle text-success"></i>
                             <div class="step-title">3. SOLD LOG</div>
-                            <div class="step-desc">Sold vehicles are logged with full details:<br>Model, Year, Depreciation, Dealer, Price</div>
+                            <div class="step-desc">Sold vehicles are written to the Sold Log with full details — model, year, depreciation, price, dealer — from cache. SGCarMart removes this data from the listing once sold, so caching is essential.</div>
                         </div>
                     </div>
 
-                    <h4><i class="bi bi-question-circle"></i> Why This Method?</h4>
+                    <h4><i class="bi bi-database"></i> Listing Cache — Why It Matters</h4>
                     <p>
-                        SGCarMart does <b>not</b> provide a direct "sold today" feed. The only way to detect daily sales
-                        is by comparing active listings between consecutive days. If a vehicle listing URL was present
-                        yesterday but is gone today, it means the vehicle has been <b>sold or removed</b>.
-                    </p>
-                    <p>
-                        This comparison method also gives us <b>complete data</b> for each sold vehicle &mdash; because the
-                        depreciation, dealer name, and price were already captured when the vehicle was still an active listing.
+                        Once a vehicle is sold, SGCarMart removes its price and depreciation from the listing page (shows "N.A."). To preserve this data, <b>every active listing is cached</b> during each scrape. When the sold detection runs, it first looks up the cache (Layer 0) to recover the full details — no data is ever lost.
                     </p>
 
-                    <h4><i class="bi bi-book"></i> How to Use</h4>
+                    <h4><i class="bi bi-question-circle"></i> Why Compare Instead of Scraping Sold Directly?</h4>
+                    <p>
+                        SGCarMart's <code>avl=s</code> (sold) filter only shows that a vehicle was sold — it does <b>not</b> show the price or depreciation at the time of sale. The only way to get accurate historical data is to <b>capture it while the vehicle is still active</b>, then detect the sale by comparing consecutive days.
+                    </p>
+
+                    <h4><i class="bi bi-book"></i> Dashboard Guide</h4>
                     <ul>
-                        <li><b>REFRESH DATA</b> &mdash; Click this button to scrape all current listings from SGCarMart. This takes about 3&ndash;5 minutes. After scraping, the system automatically compares with the previous day's data to detect sold vehicles.</li>
-                        <li><b>Daily Report (main table)</b> &mdash; Shows vehicles sold on the selected date, grouped by category (Van Diesel, Van Petrol, 10FT Diesel, 14FT Diesel). Use the calendar arrows or date picker to navigate.</li>
-                        <li><b>History dropdown</b> &mdash; Jump to any date that has sold data. The number in parentheses shows how many vehicles were sold on that day.</li>
-                        <li><b>Export (CSV / Excel / PDF)</b> &mdash; Download the daily sold report in your preferred format.</li>
-                        <li><b>Active Listings Data</b> &mdash; Expand this section to see the raw active listing data that was scraped for any date.</li>
-                        <li><b>SGCarMart Sold Listings</b> &mdash; Expand this section to see all-time accumulated sold listings scraped directly from SGCarMart (avl=s). This grows over time as more sold vehicles are discovered.</li>
-                        <li><b>Auto Schedule</b> &mdash; Set a time for automatic daily scraping (e.g., 06:00 AM). The server will scrape and detect sold vehicles automatically every day.</li>
-                        <li><b>Clear button</b> &mdash; Deletes sold data for a specific date. Use this if the data looks incorrect, then re-scrape.</li>
+                        <li><b>REFRESH DATA</b> — Triggers a full scrape. Takes 3–5 minutes. A loading overlay shows the elapsed time and estimated time remaining. All tables auto-update when done.</li>
+                        <li><b>Daily Report Table</b> — Shows vehicles sold on the selected date, grouped by vehicle category (Van Diesel, Van Petrol, Truck, Bus, etc.). Navigate using the date arrows or date picker.</li>
+                        <li><b>History Dropdown</b> — Jump to any past date with sold data. The number shows units sold on that day.</li>
+                        <li><b>Active Listings — Depreciation/Units by Year</b> — Today's market: depreciation range and listing count per model per year.</li>
+                        <li><b>Sold Listings — Last 60 Days</b> — How many units of each model were sold in the last 60 days, broken down by year.</li>
+                        <li><b>Export (CSV / Excel / PDF)</b> — Download any table in your preferred format directly from each section.</li>
+                        <li><b>Auto Schedule</b> — Set once and the server scrapes automatically every day at your chosen time (SGT). No manual action needed.</li>
+                        <li><b>Backup & Restore</b> — Download the full database as a <code>.db</code> file before redeploying. Upload it after to restore all data instantly.</li>
+                        <li><b>REST API</b> — Access all data programmatically via <a href="/api/v1/docs" target="_blank" style="color:#f26522;font-weight:600">/api/v1/docs</a>.</li>
                     </ul>
 
                     <h4><i class="bi bi-exclamation-triangle"></i> Important Notes</h4>
                     <ul>
-                        <li>You need <b>at least 2 consecutive days</b> of scrape data before sold detection works. The first scrape only saves active listings &mdash; there is nothing to compare yet.</li>
-                        <li>Both days' scrapes must <b>complete successfully</b>. If one day fails (e.g., Cloudflare blocks), sold detection is skipped for that day.</li>
-                        <li>The server must <b>stay running</b> for the auto-schedule to work. If the server restarts, the scheduler resumes from saved settings.</li>
-                        <li>Each sold entry shows the data <b>from the last time it was seen as active</b>, so depreciation and price are always accurate.</li>
+                        <li>You need <b>at least 2 consecutive days</b> of successful scrapes before sold detection produces results. The first scrape only saves active listings — there is nothing to compare against yet.</li>
+                        <li>If a scrape fails mid-way (e.g. Cloudflare blocks), sold detection is skipped for that day to prevent false positives.</li>
+                        <li>The server must <b>stay running</b> for the auto-schedule to fire. On Coolify this is always on.</li>
+                        <li>Depreciation and price in sold records always reflect <b>the last cached value while active</b> — never the sold page, which shows "N.A.".</li>
                     </ul>
 
                     <div class="guide-note">
                         <i class="bi bi-lightbulb"></i>
-                        <b>Tip:</b> For best results, run the scraper at the same time every day (e.g., 6:00 AM via auto-schedule).
-                        This ensures consistent daily comparison and accurate sold detection.
+                        <b>Best Practice:</b> Schedule the scrape at a consistent time daily (e.g. 07:00 SGT). This ensures clean day-over-day comparison and minimises missed sales.
                     </div>
                 </div>
             </div>
@@ -1344,14 +1343,23 @@
         <div class="scraping-card">
             <div class="scraping-brand">ABLINK<span>.</span></div>
             <div class="scraping-spinner"></div>
-            <h5 style="font-weight:700;color:#0d1b2a;margin-bottom:6px;">Sedang Scraping Data...</h5>
-            <p style="color:#6b7280;font-size:0.85rem;margin-bottom:12px;">Mengambil data dari SGCarMart.com</p>
-            <div class="scraping-timer" id="scrapeTimer">0:00</div>
-            <div style="color:#9ca3af;font-size:0.8rem;margin-bottom:4px;">Estimasi: 3–5 menit</div>
+            <h5 style="font-weight:700;color:#0d1b2a;margin-bottom:4px;">Scraping SGCarMart...</h5>
+            <p style="color:#6b7280;font-size:0.82rem;margin-bottom:14px;">Fetching all commercial vehicle listings</p>
+            <div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:4px;">
+                <div style="flex:1;text-align:center;">
+                    <div style="font-size:0.72rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">Elapsed</div>
+                    <div class="scraping-timer" id="scrapeElapsed">0:00</div>
+                </div>
+                <div style="flex:1;text-align:center;">
+                    <div style="font-size:0.72rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">Est. Remaining</div>
+                    <div class="scraping-timer" id="scrapeRemaining" style="color:#0d1b2a;">~5:00</div>
+                </div>
+            </div>
             <div class="scraping-progress">
                 <div class="scraping-progress-bar" id="scrapeProgressBar"></div>
             </div>
-            <div class="scraping-coffee">☕ Santai dulu, sambil minum kopi ya!</div>
+            <div id="scrapePhaseLabel" style="font-size:0.78rem;color:#9ca3af;margin-bottom:12px;text-align:center;">Initialising...</div>
+            <div class="scraping-coffee">☕ Grab a coffee — back in about 5 minutes!</div>
         </div>
     </div>
 

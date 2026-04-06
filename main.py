@@ -1491,6 +1491,478 @@ async def restore_backup(file: UploadFile = File(...)):
     return {"success": True, "message": f"Database berhasil di-restore ({len(contents):,} bytes). Refresh halaman."}
 
 
+# ============================================================
+# PUBLIC REST API v1
+# Clean, versioned endpoints for external integrations
+# Base: /api/v1/
+# Docs: /api/v1/docs
+# ============================================================
+
+@app.get("/api/v1/docs", response_class=HTMLResponse, include_in_schema=False)
+async def api_v1_docs():
+    """Human-readable API reference page"""
+    return HTMLResponse(content="""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ablink API v1 — Reference</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+:root{--navy:#0d1b2a;--orange:#f26522}
+body{background:#f5f6fa;font-family:'Segoe UI',sans-serif}
+.sidebar{background:var(--navy);min-height:100vh;padding:24px 0;position:sticky;top:0}
+.sidebar .brand{color:white;font-size:1.5rem;font-weight:900;padding:0 24px 24px;letter-spacing:-1px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:16px}
+.sidebar .brand span{color:var(--orange)}
+.sidebar a{display:block;color:rgba(255,255,255,.7);padding:8px 24px;text-decoration:none;font-size:.88rem;transition:.15s}
+.sidebar a:hover,.sidebar a.active{color:white;background:rgba(255,255,255,.08)}
+.sidebar .nav-section{color:rgba(255,255,255,.35);font-size:.72rem;font-weight:700;letter-spacing:1px;padding:16px 24px 4px;text-transform:uppercase}
+.main{padding:40px}
+.endpoint-card{background:white;border-radius:12px;margin-bottom:20px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.endpoint-header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid #f0f2f5}
+.method{font-size:.78rem;font-weight:700;padding:4px 10px;border-radius:6px;letter-spacing:.5px}
+.method.get{background:#dcfce7;color:#166534}
+.method.post{background:#dbeafe;color:#1e40af}
+.endpoint-path{font-family:monospace;font-size:1rem;font-weight:600;color:var(--navy)}
+.endpoint-body{padding:16px 20px}
+.endpoint-desc{color:#374151;font-size:.9rem;margin-bottom:14px}
+.params-table{width:100%;font-size:.83rem;border-collapse:collapse}
+.params-table th{background:#f8fafc;padding:8px 12px;text-align:left;font-weight:600;color:#6b7280;font-size:.78rem;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #e5e7eb}
+.params-table td{padding:8px 12px;border-bottom:1px solid #f0f2f5;vertical-align:top}
+.params-table td:first-child{font-family:monospace;color:var(--orange);font-weight:600}
+.params-table td.required{color:#dc2626;font-size:.75rem;font-weight:600}
+.example{background:#0d1b2a;border-radius:8px;padding:14px 16px;margin-top:12px;font-family:monospace;font-size:.82rem;color:#e2e8f0;overflow-x:auto}
+.example .comment{color:#6b7280}
+.try-btn{font-size:.78rem;padding:4px 12px;background:var(--orange);color:white;border:none;border-radius:6px;cursor:pointer;text-decoration:none;display:inline-block;margin-top:8px}
+.page-title{color:var(--navy);font-size:2rem;font-weight:900;letter-spacing:-1px;margin-bottom:4px}
+.page-title span{color:var(--orange)}
+.badge-v{background:var(--orange);color:white;font-size:.72rem;font-weight:700;padding:3px 8px;border-radius:20px;vertical-align:middle;margin-left:8px}
+.base-url{background:#0d1b2a;color:#e2e8f0;font-family:monospace;padding:12px 16px;border-radius:8px;margin:16px 0;font-size:.9rem}
+.base-url span{color:var(--orange)}
+.tag{background:#f0fdf4;color:#166534;font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #bbf7d0}
+</style>
+</head>
+<body>
+<div class="container-fluid p-0">
+<div class="row g-0">
+  <div class="col-auto sidebar d-none d-md-block" style="width:220px">
+    <div class="brand">ABLINK<span>.</span></div>
+    <div class="nav-section">Reference</div>
+    <a href="#overview">Overview</a>
+    <a href="#status">Status</a>
+    <div class="nav-section">Data</div>
+    <a href="#active-listings">Active Listings</a>
+    <a href="#sold-listings">Sold Listings</a>
+    <a href="#daily-report">Daily Report</a>
+    <a href="#depreciation">Depreciation</a>
+    <div class="nav-section">Meta</div>
+    <a href="#categories">Categories</a>
+    <a href="#history">History</a>
+    <a href="#scrape">Trigger Scrape</a>
+  </div>
+  <div class="col main">
+    <div class="page-title">API Reference <span class="badge-v">v1</span></div>
+    <p class="text-muted mb-0">Ablink SGCarMart Market Intelligence · REST API</p>
+    <div class="base-url"><span>Base URL:</span> https://your-domain.com<span>/api/v1</span></div>
+    <p style="font-size:.88rem;color:#6b7280">All responses are JSON. Dates use <code>YYYY-MM-DD</code> format (Singapore Time). No authentication required.</p>
+
+    <hr id="overview">
+
+    <!-- STATUS -->
+    <h5 class="fw-bold mt-4 mb-3" id="status" style="color:#0d1b2a">System</h5>
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/status</span>
+        <span class="tag ms-auto">no params</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="endpoint-desc">Returns scraper status, last scrape timestamp, next scheduled scrape, and system health.</div>
+        <div class="example"><span class="comment">// Response</span>
+{"status": "Ready", "last_scrape_at": "2026-04-06 08:00:00", "next_scrape": "2026-04-07 08:00:00", "timezone": "Asia/Singapore"}</div>
+        <a href="/api/v1/status" target="_blank" class="try-btn">Try it →</a>
+      </div>
+    </div>
+
+    <!-- ACTIVE LISTINGS -->
+    <h5 class="fw-bold mt-4 mb-3" id="active-listings" style="color:#0d1b2a">Data Endpoints</h5>
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/active-listings</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="endpoint-desc">Returns active vehicle listings scraped from SGCarMart. Filtered to tracked commercial vehicles only.</div>
+        <table class="params-table"><thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>date</td><td>string</td><td>today</td><td>Scrape date — <code>YYYY-MM-DD</code></td></tr>
+          <tr><td>category</td><td>string</td><td>—</td><td>Filter by vehicle category (partial match)</td></tr>
+          <tr><td>make_model</td><td>string</td><td>—</td><td>Filter by make/model (partial match)</td></tr>
+          <tr><td>limit</td><td>int</td><td>500</td><td>Max records returned (max 5000)</td></tr>
+        </tbody></table>
+        <div class="example"><span class="comment">// GET /api/v1/active-listings?date=2026-04-06&category=VAN+DIESEL&limit=50</span>
+{"date": "2026-04-06", "total": 42, "listings": [{"make_model": "Toyota Hiace", "year": 2019, "price": 85000, "depreciation": "$8,200/yr", "dealer": "ABC Motors", "url": "https://..."}]}</div>
+        <a href="/api/v1/active-listings?limit=10" target="_blank" class="try-btn">Try it →</a>
+      </div>
+    </div>
+
+    <!-- SOLD LISTINGS -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/sold-listings</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="endpoint-desc">Returns sold vehicle listings detected by comparing consecutive daily scrapes. Includes depreciation, price, and dealer info captured while the vehicle was still active.</div>
+        <table class="params-table"><thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>from_date</td><td>string</td><td>30 days ago</td><td>Start of date range</td></tr>
+          <tr><td>to_date</td><td>string</td><td>today</td><td>End of date range</td></tr>
+          <tr><td>category</td><td>string</td><td>—</td><td>Filter by category</td></tr>
+          <tr><td>make_model</td><td>string</td><td>—</td><td>Filter by make/model</td></tr>
+          <tr><td>limit</td><td>int</td><td>200</td><td>Max records (max 1000)</td></tr>
+        </tbody></table>
+        <div class="example"><span class="comment">// GET /api/v1/sold-listings?from_date=2026-04-01&to_date=2026-04-06</span>
+{"from_date": "2026-04-01", "to_date": "2026-04-06", "total": 18, "sold": [{"make_model": "Isuzu NLR", "year": 2018, "sold_date": "2026-04-05", "price": 72000, "depreciation": "$9,100/yr", "dealer": "XYZ Trucks"}]}</div>
+        <a href="/api/v1/sold-listings?limit=10" target="_blank" class="try-btn">Try it →</a>
+      </div>
+    </div>
+
+    <!-- DAILY REPORT -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/daily-report</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="endpoint-desc">Returns the daily sold vehicle summary grouped by category and model — same data shown in the main dashboard table.</div>
+        <table class="params-table"><thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>date</td><td>string</td><td>today</td><td>Report date — <code>YYYY-MM-DD</code></td></tr>
+        </tbody></table>
+        <div class="example"><span class="comment">// GET /api/v1/daily-report?date=2026-04-06</span>
+{"date": "2026-04-06", "total_sold": 7, "categories": [{"category": "VAN DIESEL (FILTER: GOODS VAN)", "models": [{"make_model": "Isuzu NLR", "units_sold": 2, "avg_price": 75000, "avg_depreciation": 8500}]}]}</div>
+        <a href="/api/v1/daily-report" target="_blank" class="try-btn">Try it →</a>
+      </div>
+    </div>
+
+    <!-- DEPRECIATION -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/depreciation</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="endpoint-desc">Returns depreciation and unit count aggregated by vehicle model and registration year. Useful for market benchmarking.</div>
+        <table class="params-table"><thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>source</td><td>string</td><td><code>active</code></td><td><code>active</code> = current listings · <code>sold</code> = sold history</td></tr>
+          <tr><td>date</td><td>string</td><td>today</td><td>Date for active source</td></tr>
+          <tr><td>days</td><td>int</td><td>60</td><td>Lookback window for sold source (e.g. 30, 60, 90)</td></tr>
+        </tbody></table>
+        <div class="example"><span class="comment">// GET /api/v1/depreciation?source=sold&days=30</span>
+{"source": "sold", "days": 30, "total_rows": 85, "data": {"Toyota Hiace 2.5M": {"2019": {"lowest": 7800, "average": 8500, "units": 4}}}}</div>
+        <a href="/api/v1/depreciation?source=active" target="_blank" class="try-btn">Try it →</a>
+      </div>
+    </div>
+
+    <!-- CATEGORIES -->
+    <h5 class="fw-bold mt-4 mb-3" id="categories" style="color:#0d1b2a">Meta Endpoints</h5>
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/categories</span>
+        <span class="tag ms-auto">no params</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="endpoint-desc">Returns all tracked vehicle categories and their target models.</div>
+        <a href="/api/v1/categories" target="_blank" class="try-btn">Try it →</a>
+      </div>
+    </div>
+
+    <!-- HISTORY -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/api/v1/history</span>
+        <span class="tag ms-auto">no params</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="endpoint-desc">Returns all dates that have sold vehicle data, along with unit counts per day. Use to discover available report dates.</div>
+        <a href="/api/v1/history" target="_blank" class="try-btn">Try it →</a>
+      </div>
+    </div>
+
+    <!-- TRIGGER SCRAPE -->
+    <div class="endpoint-card" id="scrape">
+      <div class="endpoint-header">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/api/v1/scrape</span>
+        <span class="tag ms-auto">no body</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="endpoint-desc">Triggers a full scrape of SGCarMart. Runs in background (~3–5 min). Returns 409 if scrape already in progress. Poll <code>/api/v1/status</code> to track completion.</div>
+        <div class="example"><span class="comment">// POST /api/v1/scrape</span>
+{"success": true, "message": "Scrape started. Poll /api/v1/status for completion."}</div>
+      </div>
+    </div>
+
+    <hr>
+    <p class="text-muted" style="font-size:.8rem">Developed by <a href="https://singrank.com" style="color:#f26522;font-weight:600">SingRank.com</a> · Ablink SGCarMart Intelligence</p>
+  </div>
+</div>
+</div>
+</body>
+</html>""")
+
+
+@app.get("/api/v1/status")
+async def v1_status(db: Session = Depends(get_db)):
+    """v1: Scraper status, last scrape time, next scheduled scrape"""
+    log = _ensure_scrape_log(db)
+    next_run = scheduler.get_next_run_time()
+    return {
+        "status": log.status,
+        "last_scrape_at": log.last_scrape_at.strftime("%Y-%m-%d %H:%M:%S") if log.last_scrape_at else None,
+        "next_scrape": next_run.strftime("%Y-%m-%d %H:%M:%S") if next_run else None,
+        "timezone": "Asia/Singapore (SGT)"
+    }
+
+
+@app.get("/api/v1/active-listings")
+async def v1_active_listings(
+    date: Optional[str] = None,
+    category: Optional[str] = None,
+    make_model: Optional[str] = None,
+    limit: int = 500,
+    db: Session = Depends(get_db)
+):
+    """v1: Active vehicle listings scraped from SGCarMart for a given date"""
+    limit = min(limit, 5000)
+    if date:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        target_date = datetime.now().date()
+    next_date = target_date + timedelta(days=1)
+
+    query = db.query(VehicleListing).filter(
+        and_(
+            VehicleListing.scrape_date >= target_date,
+            VehicleListing.scrape_date < next_date
+        )
+    )
+    if make_model:
+        query = query.filter(VehicleListing.make_model.ilike(f"%{make_model}%"))
+    if category:
+        query = query.filter(VehicleListing.additional_info.ilike(f"%{category}%"))
+
+    rows = query.limit(limit).all()
+    listings = [
+        {
+            "make_model": r.make_model,
+            "year": r.registered_year,
+            "price": r.price,
+            "depreciation": r.depreciation,
+            "dealer": r.dealer_name,
+            "url": r.listing_url,
+            "scraped_at": r.scrape_date.isoformat() if r.scrape_date else None
+        }
+        for r in rows
+    ]
+    return {"date": target_date.isoformat(), "total": len(listings), "listings": listings}
+
+
+@app.get("/api/v1/sold-listings")
+async def v1_sold_listings(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    category: Optional[str] = None,
+    make_model: Optional[str] = None,
+    limit: int = 200,
+    db: Session = Depends(get_db)
+):
+    """v1: Sold vehicles detected by comparing consecutive daily scrapes"""
+    limit = min(limit, 1000)
+    try:
+        fd = datetime.strptime(from_date, "%Y-%m-%d") if from_date else datetime.now() - timedelta(days=30)
+        td = datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1) if to_date else datetime.now()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    query = db.query(SoldLog).filter(
+        and_(SoldLog.sold_date >= fd, SoldLog.sold_date < td)
+    )
+    if make_model:
+        query = query.filter(SoldLog.make_model.ilike(f"%{make_model}%"))
+    if category:
+        query = query.filter(SoldLog.category.ilike(f"%{category}%"))
+
+    rows = query.order_by(SoldLog.sold_date.desc()).limit(limit).all()
+    sold = [
+        {
+            "make_model": r.make_model,
+            "year": r.year_registered,
+            "category": r.category,
+            "sold_date": r.sold_date.strftime("%Y-%m-%d") if r.sold_date else None,
+            "price": r.price,
+            "depreciation": r.depreciation,
+            "dealer": r.dealer_name,
+            "url": r.listing_url
+        }
+        for r in rows
+    ]
+    return {
+        "from_date": fd.strftime("%Y-%m-%d"),
+        "to_date": (td - timedelta(days=1)).strftime("%Y-%m-%d"),
+        "total": len(sold),
+        "sold": sold
+    }
+
+
+@app.get("/api/v1/daily-report")
+async def v1_daily_report(
+    date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """v1: Daily sold summary grouped by category and model"""
+    if date:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        target_date = datetime.now().date()
+    next_date = target_date + timedelta(days=1)
+
+    sold_rows = db.query(SoldLog).filter(
+        and_(
+            SoldLog.sold_date >= datetime.combine(target_date, datetime.min.time()),
+            SoldLog.sold_date < datetime.combine(next_date, datetime.min.time())
+        )
+    ).all()
+
+    # Group by category → model
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for r in sold_rows:
+        cat = r.category or "Uncategorised"
+        if cat not in grouped:
+            grouped[cat] = {}
+        mm = r.make_model or "Unknown"
+        if mm not in grouped[cat]:
+            grouped[cat][mm] = {"units_sold": 0, "prices": [], "depreciations": []}
+        grouped[cat][mm]["units_sold"] += 1
+        if r.price:
+            grouped[cat][mm]["prices"].append(r.price)
+        if r.depreciation:
+            try:
+                dep_val = float(r.depreciation.replace("$", "").replace(",", "").replace("/yr", "").strip())
+                grouped[cat][mm]["depreciations"].append(dep_val)
+            except Exception:
+                pass
+
+    categories_out = []
+    for cat, models in grouped.items():
+        models_out = []
+        for mm, d in models.items():
+            models_out.append({
+                "make_model": mm,
+                "units_sold": d["units_sold"],
+                "avg_price": round(sum(d["prices"]) / len(d["prices"])) if d["prices"] else None,
+                "avg_depreciation": round(sum(d["depreciations"]) / len(d["depreciations"])) if d["depreciations"] else None
+            })
+        categories_out.append({"category": cat, "models": sorted(models_out, key=lambda x: -x["units_sold"])})
+
+    return {
+        "date": target_date.isoformat(),
+        "total_sold": len(sold_rows),
+        "categories": categories_out
+    }
+
+
+@app.get("/api/v1/depreciation")
+async def v1_depreciation(
+    source: str = "active",
+    date: Optional[str] = None,
+    days: Optional[int] = 60,
+    db: Session = Depends(get_db)
+):
+    """v1: Depreciation & unit count aggregated by model and registration year"""
+    if source not in ("active", "sold"):
+        raise HTTPException(status_code=400, detail="source must be 'active' or 'sold'")
+    result = _get_depreciation_data(source, date, db, days=days if source == "sold" else None)
+    if source == "sold":
+        result["days"] = days
+    return result
+
+
+@app.get("/api/v1/categories")
+async def v1_categories():
+    """v1: All tracked vehicle categories and their target models"""
+    return {
+        "categories": [
+            {
+                "name": cat,
+                "targets": list(targets)
+            }
+            for cat, targets in config.VEHICLE_CATEGORIES.items()
+        ]
+    }
+
+
+@app.get("/api/v1/history")
+async def v1_history(db: Session = Depends(get_db)):
+    """v1: Dates with sold data and unit counts"""
+    dates = db.query(
+        func.date(SoldLog.sold_date).label("date"),
+        func.count(SoldLog.id).label("units_sold")
+    ).group_by(func.date(SoldLog.sold_date)).order_by(func.date(SoldLog.sold_date).desc()).all()
+    return {"total_dates": len(dates), "history": [{"date": str(d[0]), "units_sold": d[1]} for d in dates]}
+
+
+@app.post("/api/v1/scrape")
+async def v1_trigger_scrape(db: Session = Depends(get_db)):
+    """v1: Trigger a full SGCarMart scrape (background). Poll /api/v1/status for completion."""
+    log = _ensure_scrape_log(db)
+    if log.status == "Scraping":
+        raise HTTPException(status_code=409, detail="Scrape already in progress")
+    # Delegate to the existing /api/scrape endpoint logic via redirect
+    from fastapi.responses import RedirectResponse
+    # Reuse manual_scrape by calling POST /api/scrape internally via same handler
+    log.status = "Scraping"
+    db.commit()
+
+    def run_scrape_v1():
+        from database import SessionLocal
+        scraper = SGCarMartJSScraper(headless=True)
+        try:
+            results = scraper.scrape_vehicle_listings()
+            with SessionLocal() as s:
+                for r in results:
+                    s.add(VehicleListing(**{k: v for k, v in r.items() if k in VehicleListing.__table__.columns.keys()}))
+                s.commit()
+            with SessionLocal() as s:
+                detect_and_log_sold(s)
+            with SessionLocal() as s:
+                l = _ensure_scrape_log(s)
+                l.status = "Ready"
+                l.last_scrape_at = datetime.now()
+                s.commit()
+        except Exception as e:
+            logger.error(f"[v1/scrape] Error: {e}")
+            from database import SessionLocal as SL
+            with SL() as s:
+                l = _ensure_scrape_log(s)
+                l.status = "Ready"
+                s.commit()
+
+    import threading
+    threading.Thread(target=run_scrape_v1, daemon=True).start()
+    return {"success": True, "message": "Scrape started. Poll /api/v1/status for completion."}
+
+
 # Mount static files
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
