@@ -1,6 +1,6 @@
 """Main FastAPI application - Ablink SGCarmart Scraper"""
 import logging
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Body
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Body, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -1435,6 +1435,60 @@ async def debug_test_browser():
             "error": str(e),
             "message": "Browser test failed"
         }
+
+
+@app.get("/api/backup/download")
+async def download_backup():
+    """Download the SQLite database as a backup file"""
+    db_url = config.DATABASE_URL
+    # Extract file path from sqlite URL (sqlite:///./path/to/db or sqlite:////abs/path)
+    if db_url.startswith("sqlite:///"):
+        db_path = db_url[len("sqlite:///"):]
+    else:
+        db_path = "sgcarmart_data.db"
+
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="Database file not found")
+
+    filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+    return FileResponse(
+        path=db_path,
+        media_type="application/octet-stream",
+        filename=filename
+    )
+
+
+@app.post("/api/backup/restore")
+async def restore_backup(file: UploadFile = File(...)):
+    """Restore database from an uploaded backup file"""
+    if not file.filename.endswith(".db"):
+        raise HTTPException(status_code=400, detail="File harus berformat .db (SQLite backup)")
+
+    db_url = config.DATABASE_URL
+    if db_url.startswith("sqlite:///"):
+        db_path = db_url[len("sqlite:///"):]
+    else:
+        db_path = "sgcarmart_data.db"
+
+    # Backup current db before overwrite
+    if os.path.exists(db_path):
+        backup_path = db_path + ".before_restore"
+        import shutil
+        shutil.copy2(db_path, backup_path)
+
+    # Write uploaded file
+    contents = await file.read()
+    with open(db_path, "wb") as f:
+        f.write(contents)
+
+    # Restart scheduler so it picks up new db connections
+    try:
+        scheduler.stop()
+        scheduler.start()
+    except Exception:
+        pass
+
+    return {"success": True, "message": f"Database berhasil di-restore ({len(contents):,} bytes). Refresh halaman."}
 
 
 # Mount static files

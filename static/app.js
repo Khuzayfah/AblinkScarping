@@ -244,38 +244,76 @@ async function loadDailyReport() {
     }
 }
 
+function showScrapingOverlay() {
+    var overlay = document.getElementById('scrapingOverlay');
+    var timerEl = document.getElementById('scrapeTimer');
+    var bar = document.getElementById('scrapeProgressBar');
+    if (!overlay) return;
+    overlay.classList.add('active');
+    // Timer
+    var seconds = 0;
+    window._scrapeTimerInterval = setInterval(function () {
+        seconds++;
+        var m = Math.floor(seconds / 60);
+        var s = seconds % 60;
+        if (timerEl) timerEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+        // Progress bar: fills to ~95% over 5 minutes (300s)
+        var pct = Math.min(95, (seconds / 300) * 95);
+        if (bar) bar.style.width = pct + '%';
+    }, 1000);
+}
+
+function hideScrapingOverlay() {
+    var overlay = document.getElementById('scrapingOverlay');
+    var bar = document.getElementById('scrapeProgressBar');
+    if (overlay) overlay.classList.remove('active');
+    if (bar) bar.style.width = '100%';
+    if (window._scrapeTimerInterval) {
+        clearInterval(window._scrapeTimerInterval);
+        window._scrapeTimerInterval = null;
+    }
+    // Reset after short delay
+    setTimeout(function () {
+        var timerEl = document.getElementById('scrapeTimer');
+        if (timerEl) timerEl.textContent = '0:00';
+        if (bar) bar.style.width = '0%';
+    }, 600);
+}
+
 async function triggerScrape() {
     var btn = document.getElementById('btnRefresh');
     if (btn.disabled) return;
     btn.disabled = true;
     document.getElementById('statusBadge').textContent = 'Scraping';
     document.getElementById('statusBadge').classList.add('scraping');
+    showScrapingOverlay();
     try {
         var r = await fetch('/api/scrape', { method: 'POST' });
         if (r.status === 409) {
+            hideScrapingOverlay();
             showNotification('Scrape already in progress', true);
             btn.disabled = false;
             loadStatus();
             return;
         }
         if (!r.ok) throw new Error('Failed to start scrape');
-        showNotification('Scraping started. This may take a few minutes.');
         var check = setInterval(async function () {
             var s = await fetch('/api/status').then(function (x) { return x.json(); }).catch(function () { return {}; });
             if (s.status === 'Ready') {
                 clearInterval(check);
+                hideScrapingOverlay();
                 btn.disabled = false;
                 loadStatus();
                 loadDailyReport();
                 loadHistory();
                 loadSgcarmartSold();
-                // Auto-expand & load both depreciation tables (also updates badges)
                 autoExpandAndLoadDepreciationTables();
-                showNotification('Scraping completed. All data refreshed.');
+                showNotification('Scraping selesai. Data sudah diperbarui!');
             }
         }, 3000);
         setTimeout(function () {
             clearInterval(check);
+            hideScrapingOverlay();
             btn.disabled = false;
             loadStatus();
             loadDailyReport();
@@ -284,6 +322,7 @@ async function triggerScrape() {
             autoExpandAndLoadDepreciationTables();
         }, 300000);
     } catch (e) {
+        hideScrapingOverlay();
         showNotification('Error: ' + e.message, true);
         btn.disabled = false;
         loadStatus();
@@ -1026,3 +1065,31 @@ async function sendEmailNow() {
         if (btn) btn.disabled = false;
     }
 }
+
+async function restoreBackup(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('restoreStatus');
+    statusEl.textContent = 'Uploading...';
+    statusEl.style.color = '#6b7280';
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const r = await fetch('/api/backup/restore', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok && data.success) {
+            statusEl.textContent = '✓ ' + data.message;
+            statusEl.style.color = '#16a34a';
+            showNotification('Restore berhasil! Silakan refresh halaman.');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            statusEl.textContent = '✗ ' + (data.detail || data.message || 'Restore gagal');
+            statusEl.style.color = '#dc2626';
+        }
+    } catch(e) {
+        statusEl.textContent = '✗ Error: ' + e.message;
+        statusEl.style.color = '#dc2626';
+    }
+    input.value = '';
+}
+

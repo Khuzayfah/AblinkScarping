@@ -8,8 +8,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Persist database
-      - ./data:/app/data
+      # Persist database using named volume (survives redeploys)
+      - sgcarmart_data:/app/data
     environment:
       - DATABASE_URL=sqlite:///./data/scraping.db
       - SCRAPE_SCHEDULE_TIME=08:00
@@ -23,3 +23,7 @@ services:
       start_period: 90s
     labels:
       - "coolify.managed=true"
+
+volumes:
+  sgcarmart_data:
+    driver: local
