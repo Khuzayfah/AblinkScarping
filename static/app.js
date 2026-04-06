@@ -1098,29 +1098,92 @@ async function sendEmailNow() {
 }
 
 async function restoreBackup(input) {
-    const file = input.files[0];
+    var file = input.files[0];
     if (!file) return;
-    const statusEl = document.getElementById('restoreStatus');
+    var statusEl = document.getElementById('restoreStatus');
     statusEl.textContent = 'Uploading...';
-    statusEl.style.color = '#6b7280';
-    const formData = new FormData();
+    statusEl.style.color = '#9ca3af';
+    var formData = new FormData();
     formData.append('file', file);
     try {
-        const r = await fetch('/api/backup/restore', { method: 'POST', body: formData });
-        const data = await r.json();
+        var r = await fetch('/api/backup/restore', { method: 'POST', body: formData });
+        var data = await r.json();
         if (r.ok && data.success) {
-            statusEl.textContent = '✓ ' + data.message;
-            statusEl.style.color = '#16a34a';
-            showNotification('Restore berhasil! Silakan refresh halaman.');
-            setTimeout(() => location.reload(), 2000);
+            statusEl.textContent = '✓ Restored successfully. Reloading...';
+            statusEl.style.color = '#22c55e';
+            showNotification('Database restored. Reloading page...');
+            setTimeout(function () { location.reload(); }, 2000);
         } else {
-            statusEl.textContent = '✗ ' + (data.detail || data.message || 'Restore gagal');
-            statusEl.style.color = '#dc2626';
+            statusEl.textContent = '✗ ' + (data.detail || data.message || 'Restore failed');
+            statusEl.style.color = '#ef4444';
         }
     } catch(e) {
         statusEl.textContent = '✗ Error: ' + e.message;
-        statusEl.style.color = '#dc2626';
+        statusEl.style.color = '#ef4444';
     }
     input.value = '';
 }
+
+// ══ Developer Tools toggle ══
+function toggleDevTools() {
+    var body = document.getElementById('devToolsBody');
+    var chevron = document.getElementById('devToolsChevron');
+    if (!body) return;
+    var open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    if (chevron) chevron.style.transform = open ? '' : 'rotate(180deg)';
+}
+
+// ══ Error Reporter ══
+var _errorLog = [];
+var WA_NUMBER = '6282377660027';
+
+function _showError(msg, source) {
+    var entry = '[' + new Date().toISOString() + '] ' + (source || '') + '\n' + msg;
+    _errorLog.unshift(entry);
+    if (_errorLog.length > 20) _errorLog.pop();
+    var reporter = document.getElementById('errorReporter');
+    var textEl = document.getElementById('errorText');
+    var waLink = document.getElementById('waReportLink');
+    if (!reporter || !textEl) return;
+    textEl.textContent = _errorLog.slice(0, 5).join('\n\n---\n\n');
+    var waText = encodeURIComponent(
+        'Bug Report — Ablink Scraper\n' +
+        'URL: ' + window.location.href + '\n' +
+        'Time: ' + new Date().toISOString() + '\n\n' +
+        entry.substring(0, 300)
+    );
+    if (waLink) waLink.href = 'https://wa.me/' + WA_NUMBER + '?text=' + waText;
+    reporter.style.display = 'block';
+}
+
+function copyError() {
+    var text = _errorLog.join('\n\n---\n\n');
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function () {
+            showNotification('Error log copied to clipboard');
+        });
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta);
+        ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+        showNotification('Copied!');
+    }
+}
+
+function dismissError() {
+    var reporter = document.getElementById('errorReporter');
+    if (reporter) reporter.style.display = 'none';
+}
+
+// Global error catchers
+window.onerror = function (msg, src, line, col, err) {
+    _showError((err ? err.stack : msg) || msg, (src || '') + ':' + line + ':' + col);
+    return false;
+};
+window.onunhandledrejection = function (e) {
+    var msg = e.reason ? (e.reason.stack || e.reason.message || String(e.reason)) : String(e);
+    _showError(msg, 'UnhandledRejection');
+};
 

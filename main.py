@@ -1498,6 +1498,115 @@ async def restore_backup(file: UploadFile = File(...)):
 # Docs: /api/v1/docs
 # ============================================================
 
+@app.get("/api/v1/openapi.json", include_in_schema=False)
+async def v1_openapi_spec():
+    """OpenAPI 3.0 spec for API v1 — compatible with ChatGPT Actions, Claude Projects, and any AI agent"""
+    return {
+        "openapi": "3.0.0",
+        "info": {
+            "title": "Ablink SGCarMart Market Intelligence API",
+            "version": "1.0.0",
+            "description": (
+                "Real-time Singapore commercial vehicle market data scraped from SGCarMart.com. "
+                "Provides active listings, sold vehicle history, depreciation analytics, and daily reports. "
+                "All dates in Singapore Time (SGT / UTC+8). No authentication required."
+            ),
+            "contact": {"name": "SingRank.com", "url": "https://singrank.com"}
+        },
+        "servers": [{"url": "/api/v1", "description": "Production"}],
+        "paths": {
+            "/status": {
+                "get": {
+                    "operationId": "getStatus",
+                    "summary": "Scraper status",
+                    "description": "Returns current scraper status, timestamp of last scrape, and next scheduled scrape.",
+                    "responses": {"200": {"description": "Status object", "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"type": "string"}, "last_scrape_at": {"type": "string"}, "next_scrape": {"type": "string"}, "timezone": {"type": "string"}}}}}}}
+                }
+            },
+            "/active-listings": {
+                "get": {
+                    "operationId": "getActiveListings",
+                    "summary": "Active vehicle listings",
+                    "description": "Returns active commercial vehicle listings scraped from SGCarMart for a given date. Includes price, depreciation, dealer, and listing URL.",
+                    "parameters": [
+                        {"name": "date", "in": "query", "schema": {"type": "string", "example": "2026-04-06"}, "description": "Scrape date (YYYY-MM-DD). Defaults to today."},
+                        {"name": "category", "in": "query", "schema": {"type": "string"}, "description": "Filter by vehicle category (partial match)"},
+                        {"name": "make_model", "in": "query", "schema": {"type": "string"}, "description": "Filter by make/model (partial match)"},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 500, "maximum": 5000}}
+                    ],
+                    "responses": {"200": {"description": "List of active listings"}}
+                }
+            },
+            "/sold-listings": {
+                "get": {
+                    "operationId": "getSoldListings",
+                    "summary": "Sold vehicle history",
+                    "description": "Returns vehicles detected as sold (listing disappeared from SGCarMart). Includes depreciation, price, and dealer captured while the vehicle was still active.",
+                    "parameters": [
+                        {"name": "from_date", "in": "query", "schema": {"type": "string", "example": "2026-03-01"}},
+                        {"name": "to_date", "in": "query", "schema": {"type": "string", "example": "2026-04-06"}},
+                        {"name": "category", "in": "query", "schema": {"type": "string"}},
+                        {"name": "make_model", "in": "query", "schema": {"type": "string"}},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 200, "maximum": 1000}}
+                    ],
+                    "responses": {"200": {"description": "List of sold vehicles with full data"}}
+                }
+            },
+            "/daily-report": {
+                "get": {
+                    "operationId": "getDailyReport",
+                    "summary": "Daily sold report by category",
+                    "description": "Returns the daily sold vehicle summary grouped by vehicle category and model. Includes unit count, average price, and average depreciation per model.",
+                    "parameters": [
+                        {"name": "date", "in": "query", "schema": {"type": "string", "example": "2026-04-06"}, "description": "Report date. Defaults to today."}
+                    ],
+                    "responses": {"200": {"description": "Daily report grouped by category"}}
+                }
+            },
+            "/depreciation": {
+                "get": {
+                    "operationId": "getDepreciation",
+                    "summary": "Depreciation analytics by model and year",
+                    "description": "Returns lowest and average depreciation (SGD/year) and unit count, aggregated by vehicle model and registration year. Use source=active for current market or source=sold for historical sold data.",
+                    "parameters": [
+                        {"name": "source", "in": "query", "schema": {"type": "string", "enum": ["active", "sold"], "default": "active"}, "description": "active = today's listings, sold = sold history"},
+                        {"name": "date", "in": "query", "schema": {"type": "string"}, "description": "Date for active source (YYYY-MM-DD)"},
+                        {"name": "days", "in": "query", "schema": {"type": "integer", "default": 60}, "description": "Lookback window in days for sold source"}
+                    ],
+                    "responses": {"200": {"description": "Depreciation table keyed by model and year"}}
+                }
+            },
+            "/categories": {
+                "get": {
+                    "operationId": "getCategories",
+                    "summary": "Vehicle categories and target models",
+                    "description": "Returns all tracked vehicle categories (e.g. VAN DIESEL, 10FT DIESEL, BUS DIESEL) and their target model lists.",
+                    "responses": {"200": {"description": "List of categories with models"}}
+                }
+            },
+            "/history": {
+                "get": {
+                    "operationId": "getHistory",
+                    "summary": "Available report dates",
+                    "description": "Returns all dates that have sold vehicle data, with unit counts. Use to discover which dates have data before calling /daily-report.",
+                    "responses": {"200": {"description": "List of dates with unit counts"}}
+                }
+            },
+            "/scrape": {
+                "post": {
+                    "operationId": "triggerScrape",
+                    "summary": "Trigger a full scrape",
+                    "description": "Starts a background scrape of SGCarMart (~3-5 minutes). Returns 409 if scrape already running. Poll /status to track completion.",
+                    "responses": {
+                        "200": {"description": "Scrape started"},
+                        "409": {"description": "Scrape already in progress"}
+                    }
+                }
+            }
+        }
+    }
+
+
 @app.get("/api/v1/docs", response_class=HTMLResponse, include_in_schema=False)
 async def api_v1_docs():
     """Human-readable API reference page"""
@@ -1704,6 +1813,34 @@ body{background:#f5f6fa;font-family:'Segoe UI',sans-serif}
         <div class="endpoint-desc">Triggers a full scrape of SGCarMart. Runs in background (~3–5 min). Returns 409 if scrape already in progress. Poll <code>/api/v1/status</code> to track completion.</div>
         <div class="example"><span class="comment">// POST /api/v1/scrape</span>
 {"success": true, "message": "Scrape started. Poll /api/v1/status for completion."}</div>
+      </div>
+    </div>
+
+    <!-- AI Integration -->
+    <h5 class="fw-bold mt-4 mb-3" style="color:#0d1b2a">Use with AI Tools</h5>
+    <p style="font-size:.88rem;color:#6b7280;margin-bottom:12px">The API is fully OpenAPI 3.0 compatible. Plug it directly into ChatGPT, Claude, or any AI agent.</p>
+    <div class="endpoint-card">
+      <div class="endpoint-body" style="padding:16px 20px;">
+        <div style="display:grid;gap:14px;">
+          <div>
+            <div style="font-weight:700;font-size:.88rem;color:#0d1b2a;margin-bottom:4px;"><i class="bi bi-robot me-2" style="color:#f26522;"></i>ChatGPT — GPT Actions</div>
+            <div style="font-size:.83rem;color:#6b7280;">In your GPT configuration → <b>Actions</b> → <b>Import from URL</b> → paste:<br>
+            <code style="background:#f8fafc;padding:3px 8px;border-radius:4px;font-size:.82rem;">https://your-domain.com/api/v1/openapi.json</code></div>
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:.88rem;color:#0d1b2a;margin-bottom:4px;"><i class="bi bi-cpu me-2" style="color:#f26522;"></i>Claude — Projects / MCP</div>
+            <div style="font-size:.83rem;color:#6b7280;">Add the OpenAPI spec URL as a tool source in your Claude Project, or use the endpoints directly in prompts with the URL:<br>
+            <code style="background:#f8fafc;padding:3px 8px;border-radius:4px;font-size:.82rem;">https://your-domain.com/api/v1/openapi.json</code></div>
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:.88rem;color:#0d1b2a;margin-bottom:4px;"><i class="bi bi-lightning me-2" style="color:#f26522;"></i>Any AI Agent / LangChain / n8n</div>
+            <div style="font-size:.83rem;color:#6b7280;">Use the OpenAPI JSON spec to auto-generate tool definitions. All endpoints return clean JSON — no auth needed.</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+          <a href="/api/v1/openapi.json" target="_blank" class="try-btn"><i class="bi bi-braces me-1"></i>Download OpenAPI JSON</a>
+          <a href="/docs" target="_blank" class="try-btn" style="background:#0d1b2a;">Swagger UI →</a>
+        </div>
       </div>
     </div>
 
