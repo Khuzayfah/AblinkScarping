@@ -1,5 +1,29 @@
 // Ablink SGCarmart Scraper - Frontend
 
+// Resilient fetch wrapper: adds timeout + retry for transient network failures
+async function fetchWithRetry(url, options, retries, timeout) {
+    retries = retries || 2;
+    timeout = timeout || 15000;
+    for (var attempt = 0; attempt <= retries; attempt++) {
+        try {
+            var controller = new AbortController();
+            var timer = setTimeout(function () { controller.abort(); }, timeout);
+            var opts = Object.assign({}, options || {}, { signal: controller.signal });
+            var response = await fetch(url, opts);
+            clearTimeout(timer);
+            return response;
+        } catch (err) {
+            clearTimeout(timer);
+            if (attempt < retries) {
+                // Wait before retry (exponential backoff: 1s, 2s)
+                await new Promise(function (r) { setTimeout(r, 1000 * (attempt + 1)); });
+                continue;
+            }
+            throw err;
+        }
+    }
+}
+
 // Returns today's date as "YYYY-MM-DD" in LOCAL browser time (not UTC)
 function getLocalDateStr(date) {
     var d = date || new Date();
@@ -22,7 +46,7 @@ function setLoading(show) {
 
 async function loadStatus() {
     try {
-        var r = await fetch('/api/status');
+        var r = await fetchWithRetry('/api/status');
         if (!r.ok) return;
         var s = await r.json();
         document.getElementById('statusBadge').textContent = s.status;
@@ -191,7 +215,7 @@ async function loadDailyReport() {
     }
     setLoading(true);
     try {
-        var r = await fetch('/api/daily-report?date=' + date);
+        var r = await fetchWithRetry('/api/daily-report?date=' + date);
         if (!r.ok) throw new Error('Failed to load report');
         var data = await r.json();
         setReportDate(data.date);
@@ -372,7 +396,7 @@ function exportData(format) {
 
 async function loadHistory() {
     try {
-        var r = await fetch('/api/history');
+        var r = await fetchWithRetry('/api/history');
         if (!r.ok) return;
         var dates = await r.json();
         var sel = document.getElementById('historySelect');
@@ -795,8 +819,8 @@ async function loadActiveDepreciationTable() {
     try {
         // Fetch depreciation data and categories in parallel
         var [depRes, catRes] = await Promise.all([
-            fetch('/api/depreciation-by-year?date=' + date + '&source=active'),
-            fetch('/api/vehicle-categories')
+            fetchWithRetry('/api/depreciation-by-year?date=' + date + '&source=active'),
+            fetchWithRetry('/api/vehicle-categories')
         ]);
 
         if (!depRes.ok || !catRes.ok) throw new Error('Failed to load data');
@@ -831,8 +855,8 @@ async function loadSoldDepreciationTable() {
     try {
         // Fetch sold data (last 60 days) and categories in parallel
         var [depRes, catRes] = await Promise.all([
-            fetch('/api/depreciation-by-year?source=sold&days=60'),
-            fetch('/api/vehicle-categories')
+            fetchWithRetry('/api/depreciation-by-year?source=sold&days=60'),
+            fetchWithRetry('/api/vehicle-categories')
         ]);
 
         if (!depRes.ok || !catRes.ok) throw new Error('Failed to load data');
@@ -923,7 +947,7 @@ async function loadActiveLogCount(date) {
     // Show today's active listing count (same data source as dep table), not all-time total
     try {
         var d = date || getLocalDateStr();
-        var r = await fetch('/api/depreciation-by-year?source=active&date=' + d);
+        var r = await fetchWithRetry('/api/depreciation-by-year?source=active&date=' + d);
         if (!r.ok) return;
         var data = await r.json();
         var badge = document.getElementById('activeLogBadge');
@@ -933,7 +957,7 @@ async function loadActiveLogCount(date) {
 
 async function loadSgcarmartSoldCount() {
     try {
-        var r = await fetch('/api/sgcarmart-sold?limit=1');
+        var r = await fetchWithRetry('/api/sgcarmart-sold?limit=1');
         if (!r.ok) return;
         var data = await r.json();
         var badge = document.getElementById('soldLogCountBadge');
@@ -947,7 +971,7 @@ async function loadSgcarmartSoldCount() {
 // Load Gmail OAuth2 status
 async function loadGmailStatus() {
     try {
-        var r = await fetch('/api/gmail-status');
+        var r = await fetchWithRetry('/api/gmail-status');
         if (!r.ok) return;
         var s = await r.json();
         var notConn = document.getElementById('gmailNotConnected');
