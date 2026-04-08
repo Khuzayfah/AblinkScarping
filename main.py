@@ -298,14 +298,9 @@ async def get_listings(
             if not d.get('dealer_name') or d['dealer_name'] in ('', '–', None):
                 if cached.dealer_name and cached.dealer_name not in ('', '–'):
                     d['dealer_name'] = cached.dealer_name
-        # Skip items without year or year < 2014 (same as dep table — ensures count consistency)
+        # Skip items without year
         year_val = d.get('registered_year') or d.get('year_registered')
         if not year_val or year_val in (0, None):
-            continue
-        try:
-            if int(year_val) < 2014:
-                continue
-        except (ValueError, TypeError):
             continue
         filtered.append(d)
 
@@ -660,13 +655,8 @@ async def get_sgcarmart_sold(
                 calc = calculate_depreciation(price_val, f"01-Jul-{yr}", car_name=d.get('make_model'))
                 if calc:
                     d['depreciation'] = f"${calc:,}/yr"
-        # Skip items without year or year < 2014 (same as dep table — ensures count consistency)
+        # Skip items without year
         if not d.get('year_registered') or d['year_registered'] in (0, None):
-            continue
-        try:
-            if int(d['year_registered']) < 2014:
-                continue
-        except (ValueError, TypeError):
             continue
         filtered.append(d)
 
@@ -1047,12 +1037,6 @@ def _get_depreciation_data(source: str, date: Optional[str], db, days: Optional[
                 year = cached_obj.year_registered
         if not year:
             continue  # Skip items without year (cannot categorize)
-        # Skip items with year < 2014 (not shown in dep table)
-        try:
-            if int(year) < 2014:
-                continue
-        except (ValueError, TypeError):
-            continue
 
         dep_value = parse_depreciation(row.depreciation)
         if dep_value is None and source == "sold" and cache_map:
