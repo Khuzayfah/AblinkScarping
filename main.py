@@ -73,18 +73,26 @@ async def lifespan(app: FastAPI):
         from database import SessionLocal as _SL
         _db = _SL()
         try:
-            # Backfill: set NULL sold_date to created_at so history dropdown
-            # doesn't show a useless "None" group with thousands of entries.
-            null_count = _db.query(SoldLog).filter(SoldLog.sold_date.is_(None)).count()
-            if null_count > 0:
-                logger.info(f"[STARTUP] Backfilling {null_count} sold_log rows with NULL sold_date from created_at...")
-                from sqlalchemy import text as _txt
+            # Cleanup sold_log rows with NULL or invalid sold_date (julianday 0).
+            # Legacy production data had ~1394 rows with no usable date — these
+            # pollute the History dropdown and provide no analytic value.
+            from sqlalchemy import text as _txt
+            bad = _db.execute(_txt(
+                "SELECT COUNT(*) FROM sold_log "
+                "WHERE sold_date IS NULL OR sold_date = '' "
+                "OR CAST(strftime('%Y', sold_date) AS INTEGER) < 2000 "
+                "OR strftime('%Y', sold_date) IS NULL"
+            )).scalar()
+            if bad and bad > 0:
+                logger.info(f"[STARTUP] Removing {bad} sold_log rows with invalid sold_date...")
                 _db.execute(_txt(
-                    "UPDATE sold_log SET sold_date = created_at "
-                    "WHERE sold_date IS NULL AND created_at IS NOT NULL"
+                    "DELETE FROM sold_log "
+                    "WHERE sold_date IS NULL OR sold_date = '' "
+                    "OR CAST(strftime('%Y', sold_date) AS INTEGER) < 2000 "
+                    "OR strftime('%Y', sold_date) IS NULL"
                 ))
                 _db.commit()
-                logger.info("[STARTUP] NULL sold_date backfill complete.")
+                logger.info("[STARTUP] Invalid sold_date rows removed.")
 
             # Backfill missing data from cache
             logger.info("[STARTUP] Running sold data backfill...")
@@ -577,17 +585,23 @@ async def get_daily_report(
 
 @app.get("/api/history")
 async def get_history(db: Session = Depends(get_db)):
-    """Get list of dates that have sold data (NULL sold_date entries are excluded)."""
-    dates = db.query(
-        func.date(SoldLog.sold_date).label('sold_date'),
-        func.count(SoldLog.id).label('count')
-    ).filter(
-        SoldLog.sold_date.isnot(None)
-    ).group_by(
-        func.date(SoldLog.sold_date)
-    ).order_by(func.date(SoldLog.sold_date).desc()).all()
-
-    return [{"date": str(d[0]), "count": d[1]} for d in dates if d[0] is not None]
+    """Get list of dates that have sold data. Invalid/NULL/julianday-0 dates
+    are filtered out so the History dropdown only shows real days."""
+    # Use raw SQL to bypass SQLAlchemy DateTime type processor issues
+    import sqlite3 as _s3
+    sqlite_path = config.DATABASE_URL.replace("sqlite:///", "").lstrip("./").lstrip("/")
+    conn = _s3.connect(sqlite_path)
+    try:
+        rows = conn.execute(
+            "SELECT date(sold_date) AS d, COUNT(id) AS c FROM sold_log "
+            "WHERE sold_date IS NOT NULL AND sold_date <> '' "
+            "AND CAST(strftime('%Y', sold_date) AS INTEGER) >= 2000 "
+            "GROUP BY date(sold_date) "
+            "ORDER BY date(sold_date) DESC"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [{"date": str(d), "count": c} for d, c in rows if d]
 
 
 @app.delete("/api/sold-log/clear")
