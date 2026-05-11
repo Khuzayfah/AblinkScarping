@@ -1238,11 +1238,23 @@ function _trendBadge(trend, opts) {
     return '<span class="dash-trend ' + cls + '"><i class="bi ' + icon + '"></i> ' + amt + '</span>';
 }
 
+var _dashLoadAttempt = 0;
+var _dashFailStreak = 0;
 async function loadDashboardSummary() {
+    _dashLoadAttempt++;
+    var thisAttempt = _dashLoadAttempt;
     try {
-        var r = await fetchWithRetry('/api/dashboard-summary');
-        if (!r.ok) return;
+        // Show loading placeholder on category cards so user knows it's working
+        var catRow = document.getElementById('dashCategoryRow');
+        if (catRow && catRow.children.length === 0) {
+            catRow.innerHTML = '<div class="col-12 text-center text-muted small py-3"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Loading dashboard…</div>';
+        }
+        var r = await fetchWithRetry('/api/dashboard-summary', null, 3, 20000);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         var d = await r.json();
+        // Ignore stale responses if a newer load was triggered while this was in flight
+        if (thisAttempt !== _dashLoadAttempt) return;
+        _dashFailStreak = 0;
 
         var badge = document.getElementById('dashSnapshotBadge');
         if (badge) {
@@ -1300,6 +1312,24 @@ async function loadDashboardSummary() {
         }
     } catch (e) {
         console.error('Dashboard load failed:', e);
+        var catRow = document.getElementById('dashCategoryRow');
+        if (catRow && catRow.children.length <= 1) {
+            catRow.innerHTML =
+                '<div class="col-12">' +
+                    '<div class="alert alert-warning d-flex align-items-center justify-content-between py-2 mb-0" style="font-size:0.85rem;">' +
+                        '<span><i class="bi bi-exclamation-triangle"></i> Dashboard could not load (' + (e.message || 'network error') + ').</span>' +
+                        '<button class="btn btn-sm btn-outline-warning" onclick="loadDashboardSummary()">Retry</button>' +
+                    '</div>' +
+                '</div>';
+        }
+        // Auto-retry with backoff for transient failures (cap at 3 streak)
+        _dashFailStreak++;
+        if (_dashFailStreak <= 3 && thisAttempt === _dashLoadAttempt) {
+            var delay = 2000 * _dashFailStreak;
+            setTimeout(function () {
+                if (thisAttempt === _dashLoadAttempt) loadDashboardSummary();
+            }, delay);
+        }
     }
 }
 
