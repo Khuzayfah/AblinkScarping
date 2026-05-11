@@ -73,6 +73,19 @@ async def lifespan(app: FastAPI):
         from database import SessionLocal as _SL
         _db = _SL()
         try:
+            # Backfill: set NULL sold_date to created_at so history dropdown
+            # doesn't show a useless "None" group with thousands of entries.
+            null_count = _db.query(SoldLog).filter(SoldLog.sold_date.is_(None)).count()
+            if null_count > 0:
+                logger.info(f"[STARTUP] Backfilling {null_count} sold_log rows with NULL sold_date from created_at...")
+                from sqlalchemy import text as _txt
+                _db.execute(_txt(
+                    "UPDATE sold_log SET sold_date = created_at "
+                    "WHERE sold_date IS NULL AND created_at IS NOT NULL"
+                ))
+                _db.commit()
+                logger.info("[STARTUP] NULL sold_date backfill complete.")
+
             # Backfill missing data from cache
             logger.info("[STARTUP] Running sold data backfill...")
             SGCarMartJSScraper._backfill_sold_depreciation(_db)
@@ -564,15 +577,17 @@ async def get_daily_report(
 
 @app.get("/api/history")
 async def get_history(db: Session = Depends(get_db)):
-    """Get list of dates that have sold data"""
+    """Get list of dates that have sold data (NULL sold_date entries are excluded)."""
     dates = db.query(
         func.date(SoldLog.sold_date).label('sold_date'),
         func.count(SoldLog.id).label('count')
+    ).filter(
+        SoldLog.sold_date.isnot(None)
     ).group_by(
         func.date(SoldLog.sold_date)
     ).order_by(func.date(SoldLog.sold_date).desc()).all()
 
-    return [{"date": str(d[0]), "count": d[1]} for d in dates]
+    return [{"date": str(d[0]), "count": d[1]} for d in dates if d[0] is not None]
 
 
 @app.delete("/api/sold-log/clear")
