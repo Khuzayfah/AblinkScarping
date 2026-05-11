@@ -574,7 +574,9 @@ async def get_daily_report(
     date: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get daily report: sold units grouped by category for a specific date or today."""
+    """Get daily report: sold units grouped by category for a specific date or today.
+    Uses raw sqlite3 to avoid intermittent SQLAlchemy 2.0 DateTime column-processor
+    failures on production (the ORM path sometimes returns 0 rows silently)."""
     if date:
         try:
             target_date = datetime.strptime(date, "%Y-%m-%d").date()
@@ -585,26 +587,38 @@ async def get_daily_report(
 
     next_date = target_date + timedelta(days=1)
 
-    # Get SOLD data from SoldLog
-    sold_rows = db.query(SoldLog).filter(
-        and_(
-            SoldLog.sold_date >= datetime.combine(target_date, datetime.min.time()),
-            SoldLog.sold_date < datetime.combine(next_date, datetime.min.time())
-        )
-    ).all()
+    import sqlite3 as _s3
+    sqlite_path = config.DATABASE_URL.replace("sqlite:///", "").lstrip("./").lstrip("/")
+    conn = _s3.connect(sqlite_path)
+    try:
+        rows = conn.execute(
+            "SELECT make_model, year_registered, depreciation, dealer_name, price "
+            "FROM sold_log WHERE sold_date >= ? AND sold_date < ?",
+            (
+                datetime.combine(target_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S"),
+                datetime.combine(next_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        ).fetchall()
+    finally:
+        conn.close()
 
+    # Wrap tuples in a simple object so _build_daily_table can use attribute access
+    class _Row:
+        __slots__ = ("make_model", "year_registered", "depreciation", "dealer_name", "price")
+        def __init__(self, mm, yr, dep, dealer, price):
+            self.make_model = mm
+            self.year_registered = yr
+            self.depreciation = dep
+            self.dealer_name = dealer
+            self.price = price
+
+    sold_rows = [_Row(*r) for r in rows]
     daily_rows = _build_daily_table(sold_rows, target_date.isoformat())
-
-    # Summary from sold data
-    summary = {
-        "total_sold": len(sold_rows),
-        "date": target_date.isoformat()
-    }
 
     return {
         "date": target_date.isoformat(),
-        "summary": summary,
-        "daily_table": daily_rows
+        "summary": {"total_sold": len(sold_rows), "date": target_date.isoformat()},
+        "daily_table": daily_rows,
     }
 
 @app.get("/api/history")
@@ -799,14 +813,30 @@ async def export_sgcarmart_sold_csv(db: Session = Depends(get_db)):
 
 
 def _get_daily_table_for_date(target_date, db: Session) -> Dict[str, Any]:
-    """Get daily sold table for a given date."""
+    """Get daily sold table for a given date. Uses raw sqlite3 (see /api/daily-report)."""
     next_date = target_date + timedelta(days=1)
-    sold_rows = db.query(SoldLog).filter(
-        and_(
-            SoldLog.sold_date >= datetime.combine(target_date, datetime.min.time()),
-            SoldLog.sold_date < datetime.combine(next_date, datetime.min.time())
-        )
-    ).all()
+    import sqlite3 as _s3
+    sqlite_path = config.DATABASE_URL.replace("sqlite:///", "").lstrip("./").lstrip("/")
+    conn = _s3.connect(sqlite_path)
+    try:
+        rows = conn.execute(
+            "SELECT make_model, year_registered, depreciation, dealer_name, price "
+            "FROM sold_log WHERE sold_date >= ? AND sold_date < ?",
+            (
+                datetime.combine(target_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S"),
+                datetime.combine(next_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        ).fetchall()
+    finally:
+        conn.close()
+
+    class _Row:
+        __slots__ = ("make_model", "year_registered", "depreciation", "dealer_name", "price")
+        def __init__(self, mm, yr, dep, dealer, price):
+            self.make_model = mm; self.year_registered = yr; self.depreciation = dep
+            self.dealer_name = dealer; self.price = price
+
+    sold_rows = [_Row(*r) for r in rows]
     return _build_daily_table(sold_rows, target_date.isoformat())
 
 
