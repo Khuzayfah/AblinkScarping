@@ -1106,28 +1106,66 @@ def _get_depreciation_data(source: str, date: Optional[str], db, days: Optional[
         target_date = datetime.now().date()
         next_date = target_date + timedelta(days=1)
 
-    if source == "sold":
-        query = db.query(SgcarmartSold)
-        if days:
-            cutoff_date = datetime.now() - timedelta(days=days)
-            query = query.filter(SgcarmartSold.scrape_date >= cutoff_date)
-        rows = query.all()
-        year_field = 'year_registered'
-        # Cache map keyed by listing_url_clean → full ListingCache object
-        # (used for depreciation, year, dealer, price enrichment)
-        cache_map = {}
-        for cache_entry in db.query(ListingCache).all():
-            if cache_entry.listing_url_clean:
-                cache_map[cache_entry.listing_url_clean] = cache_entry
-    else:
-        rows = db.query(VehicleListing).filter(
-            and_(
-                VehicleListing.scrape_date >= target_date,
-                VehicleListing.scrape_date < next_date
-            )
-        ).all()
-        year_field = 'registered_year'
-        cache_map = None
+    # Use raw sqlite3 to avoid the SQLAlchemy 2.0 DateTime processor bug that
+    # intermittently returns 0 rows on production for queries with date filters.
+    import sqlite3 as _s3
+    sqlite_path = config.DATABASE_URL.replace("sqlite:///", "").lstrip("./").lstrip("/")
+    conn = _s3.connect(sqlite_path)
+
+    class _DRow:
+        __slots__ = ("make_model", "depreciation", "listing_url", "year_registered",
+                     "registered_year", "price", "dealer_name")
+        def __init__(self, mm, dep, url, yr, price, dealer):
+            self.make_model = mm
+            self.depreciation = dep
+            self.listing_url = url
+            self.year_registered = yr
+            self.registered_year = yr
+            self.price = price
+            self.dealer_name = dealer
+
+    try:
+        if source == "sold":
+            if days:
+                cutoff_str = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+                raw_rows = conn.execute(
+                    "SELECT make_model, depreciation, listing_url, year_registered, price, dealer_name "
+                    "FROM sgcarmart_sold WHERE scrape_date >= ?",
+                    (cutoff_str,)
+                ).fetchall()
+            else:
+                raw_rows = conn.execute(
+                    "SELECT make_model, depreciation, listing_url, year_registered, price, dealer_name "
+                    "FROM sgcarmart_sold"
+                ).fetchall()
+            year_field = 'year_registered'
+            cache_rows = conn.execute(
+                "SELECT listing_url_clean, depreciation, dealer_name, year_registered, price, make_model "
+                "FROM listing_cache"
+            ).fetchall()
+            class _CacheEntry:
+                __slots__ = ("listing_url_clean", "depreciation", "dealer_name",
+                             "year_registered", "price", "make_model")
+                def __init__(self, url_c, dep, dealer, yr, price, mm):
+                    self.listing_url_clean = url_c; self.depreciation = dep
+                    self.dealer_name = dealer; self.year_registered = yr
+                    self.price = price; self.make_model = mm
+            cache_map = {c.listing_url_clean: c for c in [_CacheEntry(*r) for r in cache_rows] if c.listing_url_clean}
+        else:
+            raw_rows = conn.execute(
+                "SELECT make_model, depreciation, listing_url, registered_year, price, dealer_name "
+                "FROM vehicle_listings WHERE scrape_date >= ? AND scrape_date < ?",
+                (
+                    target_date.strftime("%Y-%m-%d 00:00:00"),
+                    next_date.strftime("%Y-%m-%d 00:00:00"),
+                )
+            ).fetchall()
+            year_field = 'registered_year'
+            cache_map = None
+    finally:
+        conn.close()
+
+    rows = [_DRow(*r) for r in raw_rows]
 
     def parse_depreciation(dep_str):
         if not dep_str:
