@@ -287,60 +287,84 @@ async def get_listings(
     limit: int = 5000,
     db: Session = Depends(get_db)
 ):
-    """Get vehicle listings — target vehicles only, deduped, enriched from cache"""
-    query = db.query(VehicleListing)
+    """Get vehicle listings — target vehicles only, deduped, enriched from cache.
+    Uses raw sqlite3 to avoid SQLAlchemy 2.0 DateTime processor errors on prod."""
+    import sqlite3 as _s3
+    sqlite_path = config.DATABASE_URL.replace("sqlite:///", "").lstrip("./").lstrip("/")
+    conn = _s3.connect(sqlite_path)
+    try:
+        sql = ("SELECT id, scrape_date, make_model, registered_year, depreciation, "
+               "dealer_name, price, listing_url, additional_info FROM vehicle_listings ")
+        clauses, params = [], []
+        if date:
+            try:
+                target_date = datetime.strptime(date, "%Y-%m-%d").date()
+                next_date = target_date + timedelta(days=1)
+                clauses.append("scrape_date >= ? AND scrape_date < ?")
+                params += [
+                    target_date.strftime("%Y-%m-%d 00:00:00"),
+                    next_date.strftime("%Y-%m-%d 00:00:00"),
+                ]
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        if make_model:
+            clauses.append("UPPER(make_model) LIKE ?")
+            params.append("%" + make_model.upper() + "%")
+        if clauses:
+            sql += "WHERE " + " AND ".join(clauses) + " "
+        sql += "ORDER BY scrape_date DESC"
+        all_rows = conn.execute(sql, params).fetchall()
 
-    if date:
-        try:
-            target_date = datetime.strptime(date, "%Y-%m-%d").date()
-            next_date = target_date + timedelta(days=1)
-            query = query.filter(
-                and_(
-                    VehicleListing.scrape_date >= target_date,
-                    VehicleListing.scrape_date < next_date
-                )
-            )
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        # Build ListingCache lookup
+        cache_rows = conn.execute(
+            "SELECT listing_url_clean, depreciation, dealer_name, year_registered, price "
+            "FROM listing_cache"
+        ).fetchall()
+    finally:
+        conn.close()
 
-    if make_model:
-        query = query.filter(VehicleListing.make_model.ilike(f"%{make_model}%"))
-
-    all_rows = query.order_by(VehicleListing.scrape_date.desc()).all()
-
-    # Build ListingCache lookup for enrichment
     cache_map = {}
-    for c in db.query(ListingCache).all():
-        if c.listing_url_clean:
-            cache_map[c.listing_url_clean] = c
+    for url_clean, dep, dealer, yr, price in cache_rows:
+        if url_clean:
+            cache_map[url_clean] = {"depreciation": dep, "dealer_name": dealer,
+                                    "year_registered": yr, "price": price}
 
-    # Filter to target vehicles + dedup by URL (same as dep table)
     seen_urls = set()
     filtered = []
-    for r in all_rows:
-        raw_url = getattr(r, 'listing_url', '') or ''
+    for row in all_rows:
+        rid, sdate, mm, ryear, dep, dealer, price, url, addl = row
+        raw_url = url or ''
         clean_url = _url_dedup_key(raw_url)
         if clean_url:
             if clean_url in seen_urls:
                 continue
             seen_urls.add(clean_url)
-        model = _normalize_model(r.make_model)
+        model = _normalize_model(mm)
         if not model:
             continue
         model = config.TARGET_DISPLAY_NAMES.get(model, model)
-        d = r.to_dict()
-        d['matched_model'] = model
-        # Enrich from ListingCache for empty fields
+        d = {
+            "id": rid,
+            "scrape_date": str(sdate) if sdate else None,
+            "date": str(sdate)[:10] if sdate else None,
+            "make_model": mm,
+            "registered_year": ryear,
+            "depreciation": dep,
+            "dealer_name": dealer,
+            "price": price,
+            "listing_url": url,
+            "additional_info": addl,
+            "matched_model": model,
+        }
         cached = cache_map.get(clean_url) if clean_url else None
         if cached:
             if not d.get('depreciation') or d['depreciation'] in ('', '–', '$0/yr', None):
-                if cached.depreciation and cached.depreciation not in ('', '–', '$0/yr'):
-                    d['depreciation'] = cached.depreciation
+                if cached["depreciation"] and cached["depreciation"] not in ('', '–', '$0/yr'):
+                    d['depreciation'] = cached["depreciation"]
             if not d.get('dealer_name') or d['dealer_name'] in ('', '–', None):
-                if cached.dealer_name and cached.dealer_name not in ('', '–'):
-                    d['dealer_name'] = cached.dealer_name
-        # Skip items without year
-        year_val = d.get('registered_year') or d.get('year_registered')
+                if cached["dealer_name"] and cached["dealer_name"] not in ('', '–'):
+                    d['dealer_name'] = cached["dealer_name"]
+        year_val = d.get('registered_year')
         if not year_val or year_val in (0, None):
             continue
         filtered.append(d)
@@ -633,22 +657,49 @@ async def get_sold_log(
     limit: int = 200,
     db: Session = Depends(get_db)
 ):
-    """Chart 3: Daily Sold Log - entries when a unit from Chart 1 was detected as sold"""
-    query = db.query(SoldLog).order_by(SoldLog.sold_date.desc(), SoldLog.id.desc())
-    if date:
+    """Chart 3: Daily Sold Log - entries when a unit from Chart 1 was detected as sold.
+    Uses raw sqlite3 to avoid SQLAlchemy 2.0 DateTime processor issues on prod."""
+    import sqlite3 as _s3
+    sqlite_path = config.DATABASE_URL.replace("sqlite:///", "").lstrip("./").lstrip("/")
+    conn = _s3.connect(sqlite_path)
+    try:
+        sql = ("SELECT id, sold_date, make_model, year_registered, depreciation, "
+               "dealer_name, price, listing_url FROM sold_log ")
+        params = []
+        if date:
+            try:
+                target_date = datetime.strptime(date, "%Y-%m-%d").date()
+                next_date = target_date + timedelta(days=1)
+                sql += "WHERE sold_date >= ? AND sold_date < ? "
+                params = [
+                    datetime.combine(target_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S"),
+                    datetime.combine(next_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S"),
+                ]
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        sql += "ORDER BY sold_date DESC, id DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        sd = r[1]
         try:
-            target_date = datetime.strptime(date, "%Y-%m-%d").date()
-            next_date = target_date + timedelta(days=1)
-            query = query.filter(
-                and_(
-                    SoldLog.sold_date >= datetime.combine(target_date, datetime.min.time()),
-                    SoldLog.sold_date < datetime.combine(next_date, datetime.min.time())
-                )
-            )
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    rows = query.limit(limit).all()
-    return [r.to_dict() for r in rows]
+            sd_iso = datetime.fromisoformat(str(sd).replace(' ', 'T')).strftime("%Y-%m-%d") if sd else None
+        except Exception:
+            sd_iso = str(sd)[:10] if sd else None
+        out.append({
+            "id": r[0],
+            "sold_date": sd_iso,
+            "make_model": r[2],
+            "year_registered": r[3],
+            "depreciation": r[4],
+            "dealer_name": r[5],
+            "price": r[6],
+            "listing_url": r[7],
+        })
+    return out
 
 
 @app.get("/api/sgcarmart-sold")
@@ -968,37 +1019,43 @@ async def update_gmail_settings(
 
 @app.get("/api/statistics")
 async def get_statistics(db: Session = Depends(get_db)):
-    """Get overall statistics"""
-    total_listings = db.query(VehicleListing).count()
+    """Get overall statistics. Uses raw sqlite3 to avoid SQLAlchemy 2.0
+    DateTime column-processor issues that appear on production Python 3.11."""
+    import sqlite3 as _s3
+    sqlite_path = config.DATABASE_URL.replace("sqlite:///", "").lstrip("./").lstrip("/")
+    conn = _s3.connect(sqlite_path)
+    try:
+        total_listings = conn.execute("SELECT COUNT(*) FROM vehicle_listings").fetchone()[0] or 0
+        dr = conn.execute(
+            "SELECT MIN(scrape_date), MAX(scrape_date) FROM vehicle_listings"
+        ).fetchone()
+        first_raw, last_raw = (dr or (None, None))
+        unique_models = conn.execute(
+            "SELECT COUNT(DISTINCT make_model) FROM vehicle_listings"
+        ).fetchone()[0] or 0
+        ps = conn.execute(
+            "SELECT AVG(price), MIN(price), MAX(price) FROM vehicle_listings WHERE price IS NOT NULL"
+        ).fetchone()
+    finally:
+        conn.close()
 
-    # Get date range
-    date_range = db.query(
-        func.min(VehicleListing.scrape_date).label('first_date'),
-        func.max(VehicleListing.scrape_date).label('last_date')
-    ).first()
-
-    # Get unique models count
-    unique_models = db.query(VehicleListing.make_model).distinct().count()
-
-    # Get price statistics
-    price_stats = db.query(
-        func.avg(VehicleListing.price).label('avg_price'),
-        func.min(VehicleListing.price).label('min_price'),
-        func.max(VehicleListing.price).label('max_price')
-    ).first()
+    def _to_iso(v):
+        if not v:
+            return None
+        try:
+            return datetime.fromisoformat(str(v).replace(' ', 'T')).isoformat()
+        except Exception:
+            return str(v)
 
     return {
         "total_listings": total_listings,
         "unique_models": unique_models,
-        "date_range": {
-            "first": date_range.first_date.isoformat() if date_range.first_date else None,
-            "last": date_range.last_date.isoformat() if date_range.last_date else None
-        },
+        "date_range": {"first": _to_iso(first_raw), "last": _to_iso(last_raw)},
         "price_statistics": {
-            "average": float(price_stats.avg_price) if price_stats.avg_price else 0,
-            "minimum": float(price_stats.min_price) if price_stats.min_price else 0,
-            "maximum": float(price_stats.max_price) if price_stats.max_price else 0
-        }
+            "average": float(ps[0]) if ps and ps[0] else 0,
+            "minimum": float(ps[1]) if ps and ps[1] else 0,
+            "maximum": float(ps[2]) if ps and ps[2] else 0,
+        },
     }
 
 
