@@ -925,7 +925,7 @@ function autoExpandAndLoadDepreciationTables() {
 
 document.addEventListener('DOMContentLoaded', function () {
     loadStatus();
-    loadGmailStatus();
+    loadDashboardSummary();
     var today = getLocalDateStr();
     setReportDate(today);
     loadDailyReport();
@@ -1210,4 +1210,251 @@ window.onunhandledrejection = function (e) {
     var msg = e.reason ? (e.reason.stack || e.reason.message || String(e.reason)) : String(e);
     _showError(msg, 'UnhandledRejection');
 };
+
+// ============================================================
+// Market Dashboard
+// ============================================================
+function _fmtMoney(v) {
+    if (v == null) return '—';
+    return '$' + Number(v).toLocaleString();
+}
+function _trendBadge(trend, opts) {
+    opts = opts || {};
+    if (!trend || trend.direction == null || trend.delta == null) {
+        return '<span class="dash-trend flat"><i class="bi bi-dash"></i> —</span>';
+    }
+    var isUnits = !!opts.units;
+    var dir = trend.direction;
+    var cls = 'flat';
+    var icon = 'bi-dash';
+    if (dir === 'up') {
+        cls = isUnits ? 'units-up' : 'up';
+        icon = 'bi-arrow-up-right';
+    } else if (dir === 'down') {
+        cls = isUnits ? 'units-down' : 'down';
+        icon = 'bi-arrow-down-right';
+    }
+    var amt = opts.money ? _fmtMoney(trend.delta) : trend.delta;
+    return '<span class="dash-trend ' + cls + '"><i class="bi ' + icon + '"></i> ' + amt + '</span>';
+}
+
+async function loadDashboardSummary() {
+    try {
+        var r = await fetchWithRetry('/api/dashboard-summary');
+        if (!r.ok) return;
+        var d = await r.json();
+
+        var badge = document.getElementById('dashSnapshotBadge');
+        if (badge) {
+            badge.textContent = d.snapshot_date
+                ? ('Snapshot: ' + d.snapshot_date + (d.compare_date ? ' vs ' + d.compare_date : ''))
+                : 'No data yet';
+        }
+
+        var catRow = document.getElementById('dashCategoryRow');
+        if (catRow) {
+            catRow.innerHTML = (d.categories || []).map(function (c) {
+                return '' +
+                    '<div class="col-12 col-sm-6 col-lg-3">' +
+                        '<div class="dash-card">' +
+                            '<div class="dash-card-label">' + c.name + '</div>' +
+                            '<div class="dash-card-row">' +
+                                '<div class="dash-card-value">' + _fmtMoney(c.avg_dep) + '</div>' +
+                                _trendBadge(c.avg_dep_trend, { money: true }) +
+                            '</div>' +
+                            '<div class="dash-card-sub">Avg depreciation / yr (7d trend)</div>' +
+                            '<div class="dash-card-row mt-1">' +
+                                '<div class="dash-card-value" style="font-size:1.05rem;">' + (c.units != null ? c.units : 0) + ' units</div>' +
+                                _trendBadge(c.units_trend, { units: true }) +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+            }).join('');
+        }
+
+        var setText = function (id, v) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = v != null ? Number(v).toLocaleString() : 0;
+        };
+        var sg = d.sgcarmart_sold_summary || {};
+        setText('sgSoldYesterdayVal', sg.yesterday);
+        setText('sgSold7dVal', sg.last_7_days);
+        setText('sgSold30dVal', sg.last_30_days);
+
+        var wl = document.getElementById('dashWatchlist');
+        if (wl) {
+            wl.innerHTML = (d.watchlist || []).map(function (w) {
+                return '' +
+                    '<div class="dash-watch-card">' +
+                        '<div class="dash-watch-model">' + w.model + '</div>' +
+                        '<div class="dash-watch-metric">' +
+                            '<span class="label">Avg dep/yr</span>' +
+                            '<span class="value">' + _fmtMoney(w.avg_dep) + ' ' + _trendBadge(w.avg_dep_trend, { money: true }) + '</span>' +
+                        '</div>' +
+                        '<div class="dash-watch-metric">' +
+                            '<span class="label">Units</span>' +
+                            '<span class="value">' + (w.units != null ? w.units : 0) + ' ' + _trendBadge(w.units_trend, { units: true }) + '</span>' +
+                        '</div>' +
+                    '</div>';
+            }).join('');
+        }
+    } catch (e) {
+        console.error('Dashboard load failed:', e);
+    }
+}
+
+// ============================================================
+// Dashboard Customize Modal
+// ============================================================
+var _dashAvailableModels = [];
+var _dashCfgState = { compare_days: 7, categories: [], watchlist: [] };
+
+async function openDashboardSettings() {
+    try {
+        var r = await fetchWithRetry('/api/dashboard-config');
+        if (!r.ok) throw new Error('Failed to load config');
+        var data = await r.json();
+        _dashAvailableModels = data.available_models || [];
+        _dashCfgState = JSON.parse(JSON.stringify(data.config));
+        _renderDashSettings();
+        var modalEl = document.getElementById('dashSettingsModal');
+        new bootstrap.Modal(modalEl).show();
+    } catch (e) {
+        showNotification('Could not load settings: ' + e.message, true);
+    }
+}
+
+function _renderDashSettings() {
+    document.getElementById('dashCfgCompareDays').value = _dashCfgState.compare_days || 7;
+
+    var catBox = document.getElementById('dashCfgCategories');
+    catBox.innerHTML = (_dashCfgState.categories || []).map(function (c, idx) {
+        return _renderDashCategoryEditor(c, idx);
+    }).join('');
+
+    var wlBox = document.getElementById('dashCfgWatchlist');
+    wlBox.innerHTML = (_dashCfgState.watchlist || []).map(function (m, idx) {
+        return _renderDashWatchModelEditor(m, idx);
+    }).join('');
+}
+
+function _renderDashCategoryEditor(cat, idx) {
+    var modelChips = (cat.models || []).map(function (m, mIdx) {
+        return '<span class="dash-cfg-chip">' +
+                    _escapeHtml(m) +
+                    ' <button type="button" class="btn-close btn-close-sm" aria-label="Remove" onclick="removeDashCatModel(' + idx + ',' + mIdx + ')"></button>' +
+               '</span>';
+    }).join('');
+    return '' +
+        '<div class="dash-cfg-card">' +
+            '<div class="d-flex align-items-center gap-2 mb-2">' +
+                '<input type="text" class="form-control form-control-sm fw-bold" value="' + _escapeAttr(cat.name || '') + '" onchange="updateDashCatName(' + idx + ', this.value)" placeholder="Category name">' +
+                '<button class="btn btn-sm btn-outline-danger" onclick="removeDashCategory(' + idx + ')"><i class="bi bi-trash"></i></button>' +
+            '</div>' +
+            '<div class="dash-cfg-chips">' + (modelChips || '<span class="text-muted small">No models</span>') + '</div>' +
+            '<div class="mt-2">' +
+                '<select class="form-select form-select-sm" onchange="addDashCatModel(' + idx + ', this.value); this.value=\'\';">' +
+                    '<option value="">+ Add model…</option>' +
+                    _dashAvailableModels.map(function (m) {
+                        return '<option value="' + _escapeAttr(m) + '">' + _escapeHtml(m) + '</option>';
+                    }).join('') +
+                '</select>' +
+            '</div>' +
+        '</div>';
+}
+
+function _renderDashWatchModelEditor(model, idx) {
+    return '' +
+        '<div class="d-flex gap-2 mb-2">' +
+            '<select class="form-select form-select-sm" onchange="updateDashWatchModel(' + idx + ', this.value)">' +
+                _dashAvailableModels.map(function (m) {
+                    var sel = (m === model) ? ' selected' : '';
+                    return '<option value="' + _escapeAttr(m) + '"' + sel + '>' + _escapeHtml(m) + '</option>';
+                }).join('') +
+            '</select>' +
+            '<button class="btn btn-sm btn-outline-danger" onclick="removeDashWatchModel(' + idx + ')"><i class="bi bi-trash"></i></button>' +
+        '</div>';
+}
+
+function _escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+function _escapeAttr(s) { return _escapeHtml(s); }
+
+function addDashCategory() {
+    _dashCfgState.categories.push({ name: 'NEW CATEGORY', models: [] });
+    _renderDashSettings();
+}
+function removeDashCategory(idx) {
+    _dashCfgState.categories.splice(idx, 1);
+    _renderDashSettings();
+}
+function updateDashCatName(idx, name) {
+    if (_dashCfgState.categories[idx]) _dashCfgState.categories[idx].name = name;
+}
+function addDashCatModel(catIdx, model) {
+    if (!model) return;
+    var cat = _dashCfgState.categories[catIdx];
+    if (!cat) return;
+    cat.models = cat.models || [];
+    if (cat.models.indexOf(model) === -1) {
+        cat.models.push(model);
+        _renderDashSettings();
+    }
+}
+function removeDashCatModel(catIdx, modelIdx) {
+    var cat = _dashCfgState.categories[catIdx];
+    if (cat && cat.models) {
+        cat.models.splice(modelIdx, 1);
+        _renderDashSettings();
+    }
+}
+function addDashWatchModel() {
+    _dashCfgState.watchlist.push(_dashAvailableModels[0] || '');
+    _renderDashSettings();
+}
+function updateDashWatchModel(idx, value) {
+    _dashCfgState.watchlist[idx] = value;
+}
+function removeDashWatchModel(idx) {
+    _dashCfgState.watchlist.splice(idx, 1);
+    _renderDashSettings();
+}
+
+async function saveDashSettings() {
+    var cd = parseInt(document.getElementById('dashCfgCompareDays').value, 10);
+    if (isNaN(cd) || cd < 1) cd = 7;
+    _dashCfgState.compare_days = cd;
+    try {
+        var r = await fetchWithRetry('/api/dashboard-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(_dashCfgState)
+        });
+        if (!r.ok) throw new Error('Save failed');
+        showNotification('Dashboard settings saved');
+        var modalEl = document.getElementById('dashSettingsModal');
+        bootstrap.Modal.getInstance(modalEl).hide();
+        await loadDashboardSummary();
+    } catch (e) {
+        showNotification('Save failed: ' + e.message, true);
+    }
+}
+
+async function resetDashSettings() {
+    if (!confirm('Reset to default dashboard config?')) return;
+    try {
+        var r = await fetchWithRetry('/api/dashboard-config/reset', { method: 'POST' });
+        if (!r.ok) throw new Error('Reset failed');
+        var data = await r.json();
+        _dashCfgState = JSON.parse(JSON.stringify(data.config));
+        _renderDashSettings();
+        showNotification('Reset to default');
+        await loadDashboardSummary();
+    } catch (e) {
+        showNotification('Reset failed: ' + e.message, true);
+    }
+}
 

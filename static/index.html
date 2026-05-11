@@ -1019,6 +1019,155 @@
                 grid-template-columns: 1fr 1fr;
             }
         }
+
+        /* === Market Dashboard === */
+        .market-dashboard {
+            background: linear-gradient(135deg, #fff7f0 0%, #ffffff 100%);
+            border: 1px solid #ffe2cd;
+            border-radius: 12px;
+            padding: 18px 16px 14px;
+        }
+        .dash-section-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #374151;
+            margin-top: 8px;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .dash-section-title i { color: #f26522; }
+        .dash-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 12px 14px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            transition: box-shadow 0.15s, transform 0.15s;
+        }
+        .dash-card:hover {
+            box-shadow: 0 4px 12px rgba(242,101,34,0.08);
+            transform: translateY(-1px);
+        }
+        .dash-card-label {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #6b7280;
+        }
+        .dash-card-value {
+            font-size: 1.45rem;
+            font-weight: 800;
+            color: #111827;
+            line-height: 1.1;
+        }
+        .dash-card-sub {
+            font-size: 0.72rem;
+            color: #9ca3af;
+        }
+        .dash-card-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .dash-trend {
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            white-space: nowrap;
+        }
+        .dash-trend.up   { background: #fde8e8; color: #c0392b; }   /* dep up = bad/red */
+        .dash-trend.down { background: #e6f7ee; color: #1a7a3a; }   /* dep down = good/green */
+        .dash-trend.flat { background: #f3f4f6; color: #6b7280; }
+        .dash-trend.units-up   { background: #e6f7ee; color: #1a7a3a; }  /* units up = good */
+        .dash-trend.units-down { background: #fde8e8; color: #c0392b; }  /* units down = caution */
+        .dash-sold { border-left: 3px solid #f26522; }
+        .dash-sold-alt { border-left-color: #4472C4; }
+        .dash-sold-subtitle {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: #4b5563;
+            margin: 6px 0 2px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .dash-sold-subtitle i { color: #f26522; }
+        .dash-sold-hint {
+            font-weight: 500;
+            font-size: 0.72rem;
+            color: #9ca3af;
+            font-style: italic;
+        }
+        .dash-cfg-card {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+        }
+        .dash-cfg-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .dash-cfg-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 3px 8px 3px 10px;
+            font-size: 0.78rem;
+            color: #374151;
+        }
+        .dash-cfg-chip .btn-close {
+            font-size: 0.55rem;
+            padding: 0;
+        }
+        .dash-watchlist-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 8px;
+        }
+        .dash-watch-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+        .dash-watch-model {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 6px;
+        }
+        .dash-watch-metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 0.78rem;
+            margin-top: 2px;
+        }
+        .dash-watch-metric .label { color: #6b7280; }
+        .dash-watch-metric .value { font-weight: 700; color: #111827; }
+        @media (max-width: 575.98px) {
+            .dash-card-value { font-size: 1.2rem; }
+            .dash-watchlist-grid { grid-template-columns: 1fr 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -1051,49 +1200,65 @@
                     <i class="bi bi-clock-history"></i> Next auto-scrape: <span id="nextRunDisplay" style="font-weight:600;color:#1a5f2a;">—</span>
                 </div>
 
-                <!-- Email Settings (Google OAuth2) -->
-                <div class="mt-4 p-3" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <i class="bi bi-envelope-fill" style="color:#4472C4;font-size:1.1rem;"></i>
-                        <strong style="font-size:0.95rem;">Daily Email Report</strong>
-                        <span id="gmailEnabledBadge" class="badge ms-1" style="font-size:0.75rem;display:none;"></span>
-                    </div>
-                    <div style="font-size:0.82rem;color:#6b7280;margin-bottom:10px;">
-                        Sign in with Google to automatically send Excel + PDF of all tables after each daily scrape.
-                    </div>
-
-                    <!-- Not connected state -->
-                    <div id="gmailNotConnected">
-                        <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2" id="btnConnectGmail" onclick="connectGmail()">
-                            <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-3.58-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
-                            Sign in with Google
-                        </button>
+                <!-- Market Dashboard (replaces old Email Report block) -->
+                <div class="market-dashboard mt-4">
+                    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-bar-chart-fill" style="color:#f26522;font-size:1.15rem;"></i>
+                            <strong style="font-size:1rem;">Market Dashboard</strong>
+                            <span class="badge bg-light text-muted" id="dashSnapshotBadge" style="font-weight:500;">—</span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-primary" onclick="openDashboardSettings()" title="Customize categories, watchlist, and time window"><i class="bi bi-gear"></i> Customize</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="loadDashboardSummary()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                        </div>
                     </div>
 
-                    <!-- Connected state -->
-                    <div id="gmailConnected" style="display:none;">
-                        <div class="d-flex align-items-center gap-2 mb-2" style="font-size:0.82rem;">
-                            <i class="bi bi-check-circle-fill text-success"></i>
-                            <span>Sending from: <strong id="gmailSenderDisplay" style="color:#1a5f2a;">—</strong></span>
-                            <button class="btn btn-sm btn-link text-danger p-0 ms-1" onclick="disconnectGmail()" style="font-size:0.78rem;">Disconnect</button>
-                        </div>
-                        <div class="mb-2">
-                            <label style="font-size:0.82rem;font-weight:600;color:#374151;">Recipient Email</label>
-                            <div class="d-flex gap-2 mt-1">
-                                <input type="email" id="gmailRecipientInput" class="form-control form-control-sm" placeholder="recipient@example.com" style="max-width:260px;">
-                                <button class="btn btn-sm btn-outline-primary" onclick="saveGmailSettings()">Save</button>
+                    <!-- Category cards: avg depreciation + total units with 7d trend -->
+                    <div class="row g-2" id="dashCategoryRow">
+                        <!-- 4 cards injected by JS -->
+                    </div>
+
+                    <!-- SGCarMart Sold Listings (All-time) -->
+                    <div class="row g-2 mt-1">
+                        <div class="col-12">
+                            <div class="dash-section-title">
+                                <i class="bi bi-cart-check"></i> SGCarMart Sold Listings (All-time)
                             </div>
                         </div>
-                        <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
-                            <div class="form-check form-switch mb-0">
-                                <input class="form-check-input" type="checkbox" id="gmailEnabledSwitch" onchange="toggleGmailEnabled()">
-                                <label class="form-check-label" for="gmailEnabledSwitch" style="font-size:0.82rem;">Send daily after scrape</label>
+                        <div class="col-12 col-md-4">
+                            <div class="dash-card dash-sold">
+                                <div class="dash-card-label">Yesterday</div>
+                                <div class="dash-card-value" id="sgSoldYesterdayVal">—</div>
+                                <div class="dash-card-sub">units sold</div>
                             </div>
-                            <button class="btn btn-sm btn-outline-success" onclick="sendEmailNow()" id="btnSendEmail">
-                                <i class="bi bi-send"></i> Send Report Now
-                            </button>
                         </div>
-                        <div class="mt-1"><span class="small text-muted" id="emailStatusMsg"></span></div>
+                        <div class="col-12 col-md-4">
+                            <div class="dash-card dash-sold">
+                                <div class="dash-card-label">Past 7 days</div>
+                                <div class="dash-card-value" id="sgSold7dVal">—</div>
+                                <div class="dash-card-sub">units sold</div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <div class="dash-card dash-sold">
+                                <div class="dash-card-label">Past 30 days</div>
+                                <div class="dash-card-value" id="sgSold30dVal">—</div>
+                                <div class="dash-card-sub">units sold</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Watchlist -->
+                    <div class="row g-2 mt-1">
+                        <div class="col-12">
+                            <div class="dash-section-title"><i class="bi bi-bookmark-star"></i> Model Watchlist</div>
+                        </div>
+                        <div class="col-12">
+                            <div class="dash-watchlist-grid" id="dashWatchlist">
+                                <!-- watchlist rows injected by JS -->
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1163,7 +1328,7 @@
                 <div id="activeDepreciationBody" class="data-log-body" style="display:none;">
                     <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
                         <label class="mb-0 small fw-bold">Date:</label>
-                        <input type="date" id="activeDepreciationDate">
+                        <input type="date" id="activeDepreciationDate" onchange="loadActiveDepreciationTable()">
                         <button class="btn btn-sm btn-outline-primary" onclick="loadActiveDepreciationTable()"><i class="bi bi-arrow-clockwise"></i> Load</button>
                         <div class="ms-auto d-flex gap-1">
                             <button class="btn btn-sm btn-outline-success" onclick="exportDepreciationTable('active','csv')"><i class="bi bi-file-earmark-spreadsheet"></i> CSV</button>
@@ -1409,6 +1574,44 @@
             </div>
             <div id="scrapePhaseLabel" style="font-size:0.78rem;color:#9ca3af;margin-bottom:12px;text-align:center;">Initialising...</div>
             <div class="scraping-coffee">☕ Grab a coffee — back in about 5 minutes!</div>
+        </div>
+    </div>
+
+    <!-- Dashboard Customize Modal -->
+    <div class="modal fade" id="dashSettingsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-gear"></i> Customize Market Dashboard</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">Comparison window (days)</label>
+                        <input type="number" class="form-control form-control-sm" id="dashCfgCompareDays" min="1" max="90" style="max-width:120px;">
+                        <div class="form-text small">Trends compare current snapshot to the snapshot N days ago.</div>
+                    </div>
+
+                    <hr>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong class="small">Categories</strong>
+                        <button class="btn btn-sm btn-outline-success" onclick="addDashCategory()"><i class="bi bi-plus-circle"></i> Add category</button>
+                    </div>
+                    <div id="dashCfgCategories"></div>
+
+                    <hr>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong class="small">Model Watchlist</strong>
+                        <button class="btn btn-sm btn-outline-success" onclick="addDashWatchModel()"><i class="bi bi-plus-circle"></i> Add model</button>
+                    </div>
+                    <div id="dashCfgWatchlist"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-sm btn-outline-danger me-auto" onclick="resetDashSettings()"><i class="bi bi-arrow-counterclockwise"></i> Reset to default</button>
+                    <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-sm btn-primary" onclick="saveDashSettings()"><i class="bi bi-save"></i> Save</button>
+                </div>
+            </div>
         </div>
     </div>
 

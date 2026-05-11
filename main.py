@@ -1186,6 +1186,320 @@ async def get_depreciation_by_year(
 
 
 # ============================================================
+# DASHBOARD SUMMARY ENDPOINT
+# ============================================================
+
+_DASHBOARD_CONFIG_KEY = "dashboard_config"
+
+# Default dashboard config (used when no saved config exists in DB).
+# Each category has a name + list of target model names from config.TARGET_VEHICLES
+# (or TARGET_DISPLAY_NAMES mapped names like "TOYOTA DYNA 150 3.0").
+_DEFAULT_DASHBOARD_CONFIG = {
+    "compare_days": 7,
+    "categories": [
+        {"name": "10FT DIESEL", "models": list(config.VEHICLE_CATEGORIES["10FT DIESEL"])},
+        {"name": "14FT DIESEL", "models": list(config.VEHICLE_CATEGORIES["14FT DIESEL"])},
+        {"name": "VAN DIESEL", "models": list(config.VEHICLE_CATEGORIES["VAN DIESEL (FILTER: GOODS VAN)"])},
+        {"name": "BUS DIESEL", "models": list(config.VEHICLE_CATEGORIES["BUS DIESEL (FILTER: BUS/MINI BUS , FUEL: DIESEL)"])},
+    ],
+    "watchlist": [
+        "TOYOTA DYNA 150 3.0",
+        "CANTER FEB21",
+        "TOYOTA HIACE 3.0M",
+        "NISSAN NV200 1.6A",
+    ],
+}
+
+
+def _load_dashboard_config(db: Session) -> dict:
+    """Load the dashboard config from DB, falling back to defaults."""
+    import json as _json
+    row = db.query(AppSetting).filter(AppSetting.key == _DASHBOARD_CONFIG_KEY).first()
+    if not row or not row.value:
+        return _DEFAULT_DASHBOARD_CONFIG
+    try:
+        cfg = _json.loads(row.value)
+        # Sanity check structure
+        if not isinstance(cfg, dict) or "categories" not in cfg or "watchlist" not in cfg:
+            return _DEFAULT_DASHBOARD_CONFIG
+        cfg.setdefault("compare_days", 7)
+        return cfg
+    except Exception:
+        return _DEFAULT_DASHBOARD_CONFIG
+
+
+def _save_dashboard_config(db: Session, cfg: dict):
+    """Persist dashboard config to AppSetting."""
+    import json as _json
+    row = db.query(AppSetting).filter(AppSetting.key == _DASHBOARD_CONFIG_KEY).first()
+    serialized = _json.dumps(cfg)
+    if row:
+        row.value = serialized
+    else:
+        db.add(AppSetting(key=_DASHBOARD_CONFIG_KEY, value=serialized))
+    db.commit()
+
+
+def _parse_dep_value(dep_str):
+    """Parse '$16,890/yr' -> 16890. Returns None for invalid/placeholder values."""
+    if not dep_str:
+        return None
+    if dep_str in ("$5,001/yr", "$0/yr", "–"):
+        return None
+    import re as _re
+    m = _re.search(r'[\d,]+', str(dep_str))
+    if not m:
+        return None
+    try:
+        v = int(m.group(0).replace(',', ''))
+        return v if v not in (0, 5001) else None
+    except ValueError:
+        return None
+
+
+def _aggregate_active_snapshot(db: Session, snapshot_date):
+    """Return dict model->{'units': int, 'deps': [int]} for the active listings
+    on (or closest before) snapshot_date. Uses VehicleListing scrape_date date-bucket."""
+    # Bypass SQLAlchemy entirely — its DateTime/Date processor on SQLite chokes
+    # on Python 3.14 fromisoformat when called from cyextension on certain rows.
+    # We use a fresh sqlite3 connection and pull rows as plain tuples.
+    import sqlite3
+    sqlite_path = config.DATABASE_URL.replace("sqlite:///", "").lstrip("./").lstrip("/")
+    conn = sqlite3.connect(sqlite_path)
+    try:
+        end_of_day_str = datetime.combine(snapshot_date, datetime.max.time()).strftime("%Y-%m-%d %H:%M:%S")
+        max_row = conn.execute(
+            "SELECT MAX(scrape_date) FROM vehicle_listings "
+            "WHERE scrape_date IS NOT NULL AND scrape_date <= ?",
+            (end_of_day_str,)
+        ).fetchone()
+        max_raw = max_row[0] if max_row else None
+        if not max_raw:
+            return {}, None
+        try:
+            actual = datetime.fromisoformat(str(max_raw).replace(' ', 'T')).date()
+        except Exception:
+            actual = datetime.strptime(str(max_raw)[:10], "%Y-%m-%d").date()
+        next_day = actual + timedelta(days=1)
+        start_str = datetime.combine(actual, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
+        end_str = datetime.combine(next_day, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
+        cursor = conn.execute(
+            "SELECT make_model, depreciation, listing_url FROM vehicle_listings "
+            "WHERE scrape_date >= ? AND scrape_date < ?",
+            (start_str, end_str)
+        )
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+    seen = set()
+    agg = {}
+    for make_model, dep_str, listing_url in rows:
+        url_key = _url_dedup_key(listing_url or '')
+        if url_key:
+            if url_key in seen:
+                continue
+            seen.add(url_key)
+        model = _normalize_model(make_model)
+        if not model:
+            continue
+        model = config.TARGET_DISPLAY_NAMES.get(model, model)
+        slot = agg.setdefault(model, {"units": 0, "deps": []})
+        slot["units"] += 1
+        dv = _parse_dep_value(dep_str)
+        if dv is not None:
+            slot["deps"].append(dv)
+    return agg, actual
+
+
+def _category_metrics(model_agg: dict, models: list):
+    """Aggregate per-model stats into a category total."""
+    units = 0
+    deps = []
+    for m in models:
+        s = model_agg.get(m)
+        if not s:
+            continue
+        units += s["units"]
+        deps.extend(s["deps"])
+    avg = int(sum(deps) / len(deps)) if deps else None
+    return {"units": units, "avg_dep": avg}
+
+
+def _delta(cur, prev):
+    """Return delta direction + amount given current/previous numeric values (or None)."""
+    if cur is None or prev is None:
+        return {"delta": None, "direction": "flat"}
+    diff = cur - prev
+    direction = "up" if diff > 0 else ("down" if diff < 0 else "flat")
+    return {"delta": abs(diff), "direction": direction}
+
+
+@app.get("/api/dashboard-summary")
+async def dashboard_summary(db: Session = Depends(get_db)):
+    """Aggregated dashboard: per-category metrics with 7d trend, sold counts, watchlist."""
+    cfg = _load_dashboard_config(db)
+    compare_days = int(cfg.get("compare_days", 7) or 7)
+    today = datetime.now().date()
+    compare_date = today - timedelta(days=compare_days)
+
+    cur_agg, cur_date = _aggregate_active_snapshot(db, today)
+    prev_agg, prev_date = _aggregate_active_snapshot(db, compare_date)
+
+    # Categories: from saved config (or defaults)
+    categories_out = []
+    for cat in cfg.get("categories", []):
+        models = cat.get("models", []) or []
+        cur = _category_metrics(cur_agg, models)
+        prev = _category_metrics(prev_agg, models)
+        categories_out.append({
+            "name": cat.get("name", ""),
+            "avg_dep": cur["avg_dep"],
+            "avg_dep_trend": _delta(cur["avg_dep"], prev["avg_dep"]),
+            "units": cur["units"],
+            "units_trend": _delta(cur["units"], prev["units"]),
+        })
+
+    # Watchlist
+    watchlist_out = []
+    for m in cfg.get("watchlist", []):
+        cur_s = cur_agg.get(m, {"units": 0, "deps": []})
+        prev_s = prev_agg.get(m, {"units": 0, "deps": []})
+        cur_avg = int(sum(cur_s["deps"]) / len(cur_s["deps"])) if cur_s["deps"] else None
+        prev_avg = int(sum(prev_s["deps"]) / len(prev_s["deps"])) if prev_s["deps"] else None
+        watchlist_out.append({
+            "model": m,
+            "units": cur_s["units"],
+            "avg_dep": cur_avg,
+            "avg_dep_trend": _delta(cur_avg, prev_avg),
+            "units_trend": _delta(cur_s["units"], prev_s["units"]),
+        })
+
+    # Sold counts from sold_log (target vehicles only — already filtered there)
+    yesterday = today - timedelta(days=1)
+    last_7_start = today - timedelta(days=7)
+    last_30_start = today - timedelta(days=30)
+
+    import sqlite3 as _s3
+    _sqlite_path = config.DATABASE_URL.replace("sqlite:///", "").lstrip("./").lstrip("/")
+    _conn = _s3.connect(_sqlite_path)
+    try:
+        # Source A: sold_log (units detected as disappeared from active listings)
+        def _count_sold_log(start_date, end_date):
+            s = datetime.combine(start_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
+            e = datetime.combine(end_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
+            r = _conn.execute(
+                "SELECT COUNT(*) FROM sold_log WHERE sold_date >= ? AND sold_date < ?",
+                (s, e)
+            ).fetchone()
+            return r[0] if r else 0
+
+        # Source B: sgcarmart_sold (avl=s accumulated). Count UNIQUE listings whose
+        # first observed scrape_date falls within the window — that's the day they
+        # first appeared as sold on SGCarMart.
+        def _count_sgcarmart_sold(start_date, end_date):
+            s = datetime.combine(start_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
+            e = datetime.combine(end_date, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
+            r = _conn.execute(
+                """
+                SELECT COUNT(*) FROM (
+                    SELECT listing_url, MIN(scrape_date) AS first_seen
+                    FROM sgcarmart_sold
+                    WHERE listing_url IS NOT NULL AND listing_url <> ''
+                    GROUP BY listing_url
+                ) AS firsts
+                WHERE firsts.first_seen >= ? AND firsts.first_seen < ?
+                """,
+                (s, e)
+            ).fetchone()
+            return r[0] if r else 0
+
+        sold_log_summary = {
+            "yesterday": _count_sold_log(yesterday, today),
+            "last_7_days": _count_sold_log(last_7_start, today),
+            "last_30_days": _count_sold_log(last_30_start, today),
+        }
+        sgcarmart_sold_summary = {
+            "yesterday": _count_sgcarmart_sold(yesterday, today),
+            "last_7_days": _count_sgcarmart_sold(last_7_start, today),
+            "last_30_days": _count_sgcarmart_sold(last_30_start, today),
+        }
+    finally:
+        _conn.close()
+
+    return {
+        "snapshot_date": cur_date.isoformat() if cur_date else None,
+        "compare_date": prev_date.isoformat() if prev_date else None,
+        "compare_days": compare_days,
+        "categories": categories_out,
+        "sold_log_summary": sold_log_summary,
+        "sgcarmart_sold_summary": sgcarmart_sold_summary,
+        "watchlist": watchlist_out,
+    }
+
+
+@app.get("/api/dashboard-config")
+async def get_dashboard_config(db: Session = Depends(get_db)):
+    """Return current dashboard config + list of all available target models."""
+    cfg = _load_dashboard_config(db)
+    # Build full list of available models (TARGET_VEHICLES + display-name mapped)
+    available = set()
+    for m in config.TARGET_VEHICLES:
+        available.add(config.TARGET_DISPLAY_NAMES.get(m, m))
+    # Also include combined display names from VEHICLE_CATEGORIES (e.g. "ISUZU NHR / ISUZU NJR")
+    for cat_models in config.VEHICLE_CATEGORIES.values():
+        for m in cat_models:
+            available.add(m)
+    return {
+        "config": cfg,
+        "available_models": sorted(available),
+        "default_config": _DEFAULT_DASHBOARD_CONFIG,
+    }
+
+
+@app.post("/api/dashboard-config")
+async def set_dashboard_config(payload: Dict[str, Any] = Body(...), db: Session = Depends(get_db)):
+    """Save a new dashboard config. Expected shape:
+    { compare_days: int, categories: [{name, models: [str]}], watchlist: [str] }
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Body must be a JSON object")
+    cats = payload.get("categories")
+    wl = payload.get("watchlist")
+    if not isinstance(cats, list) or not isinstance(wl, list):
+        raise HTTPException(status_code=400, detail="categories and watchlist must be arrays")
+    # Sanitize
+    clean_cats = []
+    for c in cats:
+        if not isinstance(c, dict):
+            continue
+        name = str(c.get("name", "")).strip()
+        models = [str(m).strip() for m in (c.get("models") or []) if str(m).strip()]
+        if name:
+            clean_cats.append({"name": name, "models": models})
+    clean_wl = [str(m).strip() for m in wl if str(m).strip()]
+    try:
+        compare_days = int(payload.get("compare_days", 7) or 7)
+        if compare_days < 1:
+            compare_days = 7
+    except (TypeError, ValueError):
+        compare_days = 7
+    new_cfg = {
+        "compare_days": compare_days,
+        "categories": clean_cats,
+        "watchlist": clean_wl,
+    }
+    _save_dashboard_config(db, new_cfg)
+    return {"success": True, "config": new_cfg}
+
+
+@app.post("/api/dashboard-config/reset")
+async def reset_dashboard_config(db: Session = Depends(get_db)):
+    """Reset dashboard config to defaults."""
+    _save_dashboard_config(db, _DEFAULT_DASHBOARD_CONFIG)
+    return {"success": True, "config": _DEFAULT_DASHBOARD_CONFIG}
+
+
+# ============================================================
 # DEBUG ENDPOINTS - For Debug Console
 # ============================================================
 

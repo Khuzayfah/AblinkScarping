@@ -77,7 +77,7 @@ class AppSetting(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String(50), unique=True, index=True)
-    value = Column(String(200))
+    value = Column(Text)
 
 
 class SoldLog(Base):
