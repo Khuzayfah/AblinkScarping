@@ -98,8 +98,8 @@ async function loadStatus() {
         if (banner) {
             if (!_scrapeStatus.healthy || isStale) {
                 var staleMsg = staleDays > 0
-                    ? 'Data belum di-update <strong>' + staleDays + ' hari</strong>. '
-                    : 'Scraping terakhir <strong>gagal</strong>. ';
+                    ? 'Data has not been updated for <strong>' + staleDays + ' day' + (staleDays > 1 ? 's' : '') + '</strong>. '
+                    : 'Last scrape <strong>failed</strong>. ';
                 var errMsg = _scrapeStatus.lastError
                     ? '<br><small style="opacity:0.85">Error: ' + _scrapeStatus.lastError + '</small>'
                     : '';
@@ -107,8 +107,8 @@ async function loadStatus() {
                     ? ' Next auto-scrape: <strong>' + _scrapeStatus.nextRun + '</strong>.'
                     : '';
                 banner.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-2"></i>'
-                    + staleMsg + 'Data ditampilkan mungkin tidak akurat.' + nextMsg + errMsg
-                    + ' <button class="btn btn-sm btn-warning ms-2" onclick="triggerScrape()" style="vertical-align:middle;">Scrape Sekarang</button>';
+                    + staleMsg + 'Displayed data may be out of date.' + nextMsg + errMsg
+                    + ' <button class="btn btn-sm btn-warning ms-2" onclick="triggerScrape()" style="vertical-align:middle;">Scrape Now</button>';
                 banner.style.display = 'block';
             } else {
                 banner.style.display = 'none';
@@ -301,15 +301,15 @@ async function loadDailyReport() {
             if (!_scrapeStatus.healthy && daysDiff <= 7) {
                 var nextInfo = _scrapeStatus.nextRun ? ' Next auto-scrape: <b>' + _scrapeStatus.nextRun + '</b>.' : '';
                 emptyMsg = '<i class="bi bi-exclamation-triangle" style="font-size:2rem;display:block;margin-bottom:8px;color:#f59e0b;"></i>'
-                    + '<b>Auto-scraping tidak jalan untuk tanggal ini.</b><br>'
-                    + (daysDiff === 0 ? 'Data hari ini belum ada.' : daysDiff + ' hari data tidak ter-update.')
+                    + '<b>Auto-scrape did not run for this date.</b><br>'
+                    + (daysDiff === 0 ? 'No data for today yet.' : daysDiff + ' day' + (daysDiff > 1 ? 's' : '') + ' of data missing.')
                     + nextInfo + '<br><br>'
-                    + '<button class="btn btn-sm btn-warning" onclick="triggerScrape()">Scrape Sekarang</button>';
+                    + '<button class="btn btn-sm btn-warning" onclick="triggerScrape()">Scrape Now</button>';
             } else if (daysDiff === 0) {
                 emptyMsg = '<i class="bi bi-clock" style="font-size:2rem;display:block;margin-bottom:8px;"></i>'
-                    + 'Data hari ini belum ada.<br>'
-                    + (_scrapeStatus.nextRun ? 'Auto-scrape berikutnya: <b>' + _scrapeStatus.nextRun + '</b>' : 'Klik REFRESH DATA untuk scrape sekarang.')
-                    + '<br><br><button class="btn btn-sm btn-success" onclick="triggerScrape()">Scrape Sekarang</button>';
+                    + 'No data for today yet.<br>'
+                    + (_scrapeStatus.nextRun ? 'Next auto-scrape: <b>' + _scrapeStatus.nextRun + '</b>' : 'Click REFRESH DATA to scrape now.')
+                    + '<br><br><button class="btn btn-sm btn-success" onclick="triggerScrape()">Scrape Now</button>';
             } else {
                 emptyMsg = '<i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>'
                     + 'No sold data for this date.<br>Navigate to another date or click REFRESH DATA.';
