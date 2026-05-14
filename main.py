@@ -240,9 +240,20 @@ async def get_status(db: Session = Depends(get_db)):
     next_run_display = None
     if next_run:
         next_run_display = next_run.strftime("%Y-%m-%d %H:%M SGT")
+
+    # Surface scrape health so the UI can show when the last run actually
+    # succeeded vs. silently failed (e.g. blocked by Cloudflare).
+    err_row = db.query(AppSetting).filter(AppSetting.key == "last_scrape_error").first()
+    succ_row = db.query(AppSetting).filter(AppSetting.key == "last_successful_scrape_at").first()
+    last_error = err_row.value if err_row and err_row.value else None
+    last_success_at = succ_row.value if succ_row and succ_row.value else None
+
     return {
         "status": log.status,
         "last_scrape_at": log.last_scrape_at.strftime("%Y-%m-%d %H:%M:%S") if log.last_scrape_at else None,
+        "last_successful_scrape_at": last_success_at,
+        "last_scrape_error": last_error,
+        "scrape_healthy": last_error is None,
         "schedule": {"hour": hour, "minute": minute, "interval_days": interval_days},
         "schedule_display": f"{hour:02d}:{minute:02d} SGT (every {interval_days} day{'s' if interval_days > 1 else ''})",
         "next_scheduled_scrape": next_run.isoformat() if next_run else None,
