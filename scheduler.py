@@ -6,13 +6,27 @@ from datetime import datetime
 import pytz
 import config
 from js_scraper import SGCarMartJSScraper
-from database import SessionLocal, ScrapeLog
+from database import SessionLocal, ScrapeLog, AppSetting
 from sold_log_service import detect_and_log_sold
 
 logger = logging.getLogger("scheduler")
 
 # Singapore timezone - SGCarMart is a Singapore site
 SGT = pytz.timezone('Asia/Singapore')
+
+# If the container was down/sleeping when the scheduled time hit, still run
+# the job when it wakes up, as long as we are within this window. 12 hours
+# covers overnight sleeps and short restarts.
+MISFIRE_GRACE_SECONDS = 12 * 3600
+
+
+def _set_app_setting(db, key: str, value: str):
+    """Upsert a value in the app_settings key-value store."""
+    row = db.query(AppSetting).filter(AppSetting.key == key).first()
+    if row:
+        row.value = value
+    else:
+        db.add(AppSetting(key=key, value=value))
 
 
 class ScraperScheduler:
@@ -24,8 +38,16 @@ class ScraperScheduler:
         self._minute = config.SCRAPING_SCHEDULE_MINUTE
         self._interval_days = 1
 
-    def _set_status(self, status: str, update_last_scrape: bool = False):
-        """Helper to update ScrapeLog status safely."""
+    def _set_status(self, status: str, update_last_scrape: bool = False,
+                    last_error: str = None, last_success: bool = None):
+        """Update ScrapeLog status and record run outcome in app_settings.
+
+        - status: "Ready" | "Scraping"
+        - update_last_scrape: bump last_scrape_at (attempted run timestamp)
+        - last_error: if provided, persisted as 'last_scrape_error'; pass ""
+          to clear it on a successful run.
+        - last_success: if True, also stamp 'last_successful_scrape_at'.
+        """
         db = SessionLocal()
         try:
             log = db.query(ScrapeLog).first()
@@ -36,6 +58,12 @@ class ScraperScheduler:
                 log.status = status
             if update_last_scrape:
                 log.last_scrape_at = datetime.now()
+
+            if last_error is not None:
+                _set_app_setting(db, 'last_scrape_error', last_error)
+            if last_success is True:
+                _set_app_setting(db, 'last_successful_scrape_at',
+                                 datetime.now().isoformat())
             db.commit()
         except Exception as e:
             logger.error(f"Failed to set status to '{status}': {e}")
@@ -50,6 +78,11 @@ class ScraperScheduler:
 
         self._set_status("Scraping")
 
+        active_count = 0
+        comparison_sold = 0
+        avl_count = 0
+        scrape_error = None
+
         try:
             scraper = SGCarMartJSScraper(headless=True)
 
@@ -60,13 +93,13 @@ class ScraperScheduler:
             logger.info(f"[SCHEDULER] Active listings: {active_count} vehicles found")
 
             # Step 2: Detect sold by comparison (previous vs current) → sold_log
-            comparison_sold = 0
             if results:
                 logger.info("[SCHEDULER] Step 2/3: Detecting sold vehicles (comparison)...")
                 comparison_sold = detect_and_log_sold()
                 logger.info(f"[SCHEDULER] Sold today: {comparison_sold} vehicles disappeared")
             else:
                 logger.warning("[SCHEDULER] Skipping sold detection - no active listings scraped")
+                scrape_error = "Active listings scrape returned 0 results (likely blocked / Cloudflare)"
 
             # Step 3: Scrape accumulated sold from SGCarMart (avl=s) → sgcarmart_sold
             logger.info("[SCHEDULER] Step 3/3: Scraping SGCarMart sold listings (avl=s)...")
@@ -74,34 +107,51 @@ class ScraperScheduler:
             avl_count = len(sold_results) if sold_results else 0
             logger.info(f"[SCHEDULER] SGCarMart sold (accumulated): {avl_count} vehicles")
 
-            self._set_status("Ready", update_last_scrape=True)
+            # A successful run requires at least one of the two scrapes to
+            # have returned data. If both are empty, treat as failure so the
+            # dashboard surfaces the problem instead of silently passing.
+            if active_count == 0 and avl_count == 0:
+                scrape_error = scrape_error or "Both active and sold scrapes returned 0 results"
 
-            logger.info(f"===== SCHEDULED SCRAPE COMPLETED =====")
+            if scrape_error:
+                # Bump last_scrape_at so we know an attempt happened, but
+                # keep last_successful_scrape_at unchanged so the dashboard
+                # shows the real last-good time.
+                self._set_status("Ready", update_last_scrape=True,
+                                 last_error=scrape_error)
+                logger.error(f"===== SCHEDULED SCRAPE FINISHED WITH ERROR: {scrape_error} =====")
+            else:
+                self._set_status("Ready", update_last_scrape=True,
+                                 last_error="", last_success=True)
+                logger.info(f"===== SCHEDULED SCRAPE COMPLETED =====")
+
             logger.info(f"  Active: {active_count} | Sold today: {comparison_sold} | SGCarMart sold: {avl_count}")
 
-            # Step 4: Send daily email report (if enabled in DB settings)
-            try:
-                from email_service import send_daily_report, get_db_setting
-                from database import SessionLocal as EmailDBSession
-                email_db = EmailDBSession()
+            # Step 4: Send daily email report (only on success)
+            if not scrape_error:
                 try:
-                    if get_db_setting(email_db, 'gmail_enabled', 'false') == 'true':
-                        date_str = now_sgt.strftime("%Y-%m-%d")
-                        ok, msg = send_daily_report(email_db, date_str)
-                        if ok:
-                            logger.info(f"[SCHEDULER] Email: {msg}")
-                        else:
-                            logger.warning(f"[SCHEDULER] Email skipped: {msg}")
-                finally:
-                    email_db.close()
-            except Exception as email_err:
-                logger.error(f"[SCHEDULER] Email error: {email_err}")
+                    from email_service import send_daily_report, get_db_setting
+                    from database import SessionLocal as EmailDBSession
+                    email_db = EmailDBSession()
+                    try:
+                        if get_db_setting(email_db, 'gmail_enabled', 'false') == 'true':
+                            date_str = now_sgt.strftime("%Y-%m-%d")
+                            ok, msg = send_daily_report(email_db, date_str)
+                            if ok:
+                                logger.info(f"[SCHEDULER] Email: {msg}")
+                            else:
+                                logger.warning(f"[SCHEDULER] Email skipped: {msg}")
+                    finally:
+                        email_db.close()
+                except Exception as email_err:
+                    logger.error(f"[SCHEDULER] Email error: {email_err}")
 
         except Exception as e:
             logger.error(f"[SCHEDULER] Scrape failed with error: {e}")
             import traceback
             traceback.print_exc()
-            self._set_status("Ready", update_last_scrape=True)
+            self._set_status("Ready", update_last_scrape=True,
+                             last_error=f"{type(e).__name__}: {e}")
 
     def set_initial_schedule(self, hour: int, minute: int, interval_days: int = 1):
         """Set schedule before start (e.g. from DB)"""
@@ -126,7 +176,13 @@ class ScraperScheduler:
             id='daily_scrape',
             name='SGCarMart Scrape',
             replace_existing=True,
-            misfire_grace_time=3600,  # Allow 1 hour grace for missed jobs
+            # If the container was sleeping/down when the cron time hit, run
+            # the missed job once it comes back up (within the grace window).
+            misfire_grace_time=MISFIRE_GRACE_SECONDS,
+            # Collapse multiple missed runs into one — we never want to
+            # double-scrape if APScheduler thinks several intervals elapsed.
+            coalesce=True,
+            max_instances=1,
         )
         self.scheduler.start()
 
@@ -136,11 +192,23 @@ class ScraperScheduler:
         logger.info(f"SCHEDULER STARTED")
         logger.info(f"  Schedule: {interval_text} at {self._hour:02d}:{self._minute:02d} SGT")
         logger.info(f"  Next run: {next_str}")
+        logger.info(f"  Misfire grace: {MISFIRE_GRACE_SECONDS // 3600}h (catches up after restart)")
         logger.info(f"  Timezone: Asia/Singapore (SGT)")
         logger.info(f"========================================")
 
-        # Reset stuck "Scraping" status on startup
-        self._set_status("Ready")
+        # Reset stuck "Scraping" status on startup (e.g. crashed mid-run)
+        db = SessionLocal()
+        try:
+            log = db.query(ScrapeLog).first()
+            if log and log.status == "Scraping":
+                log.status = "Ready"
+                db.commit()
+                logger.warning("Reset stuck 'Scraping' status to 'Ready' (previous run crashed?)")
+        except Exception as e:
+            logger.error(f"Failed to reset stuck status on startup: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
     def update_schedule(self, hour: int, minute: int, interval_days: int = 1):
         """Update scrape time and interval"""
