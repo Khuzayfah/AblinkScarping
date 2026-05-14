@@ -83,20 +83,23 @@ async function loadStatus() {
         _scrapeStatus.lastSuccess = s.last_successful_scrape_at || null;
         _scrapeStatus.nextRun = s.next_run_display || null;
 
-        // Check if data is stale (last successful scrape > 24h ago or never)
+        // Check if data is stale. Only warn when we have a confirmed error
+        // or when last_successful_scrape_at is known and old. If neither
+        // field has been written yet (first boot after the update), do not
+        // show a false-positive warning.
         var isStale = false;
         var staleDays = 0;
         if (s.last_successful_scrape_at) {
             var lastOk = new Date(s.last_successful_scrape_at);
             staleDays = Math.floor((Date.now() - lastOk.getTime()) / 86400000);
             if (staleDays >= 1) isStale = true;
-        } else if (s.last_scrape_at) {
-            isStale = true; // attempted but never succeeded
         }
+        // Only show banner when there is an actual confirmed error.
 
         var banner = document.getElementById('scrapeWarningBanner');
         if (banner) {
             if (!_scrapeStatus.healthy || isStale) {
+                // scrape_healthy is false only when last_scrape_error is non-empty
                 var staleMsg = staleDays > 0
                     ? 'Data has not been updated for <strong>' + staleDays + ' day' + (staleDays > 1 ? 's' : '') + '</strong>. '
                     : 'Last scrape <strong>failed</strong>. ';
