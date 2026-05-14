@@ -312,7 +312,9 @@ async function loadDailyReport() {
                 emptyMsg = '<i class="bi bi-clock" style="font-size:2rem;display:block;margin-bottom:8px;"></i>'
                     + 'No data for today yet.<br>'
                     + (_scrapeStatus.nextRun ? 'Next auto-scrape: <b>' + _scrapeStatus.nextRun + '</b>' : 'Click REFRESH DATA to scrape now.')
-                    + '<br><br><button class="btn btn-sm btn-success" onclick="triggerScrape()">Scrape Now</button>';
+                    + '<br><br>'
+                    + '<button class="btn btn-sm btn-success me-2" onclick="triggerScrape()">Scrape Now</button>'
+                    + '<button class="btn btn-sm btn-outline-warning" onclick="catchupSold()" title="Force sold-detection comparing today against the last known snapshot. Use only after a multi-day scrape outage.">Catch-up Sold Detection</button>';
             } else {
                 emptyMsg = '<i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>'
                     + 'No sold data for this date.<br>Navigate to another date or click REFRESH DATA.';
@@ -405,6 +407,21 @@ function hideScrapingOverlay() {
         if (bar) { bar.style.transition = 'none'; bar.style.width = '0%'; }
         if (phaseEl) phaseEl.textContent = 'Initialising...';
     }, 800);
+}
+
+async function catchupSold() {
+    if (!confirm('Force sold detection? This compares today\'s active listings against the previous snapshot (regardless of date gap) and logs all disappeared units as sold today. Use only after a multi-day scrape outage.')) return;
+    try {
+        showNotification('Running sold catch-up...');
+        var r = await fetch('/api/sold-log/catchup', { method: 'POST' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var d = await r.json();
+        showNotification(d.message || ('Catch-up done: ' + d.logged + ' logged'));
+        loadDailyReport();
+        loadHistory();
+    } catch (e) {
+        showNotification('Catch-up failed: ' + e.message, true);
+    }
 }
 
 async function triggerScrape() {

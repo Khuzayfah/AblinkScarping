@@ -97,11 +97,16 @@ def _normalize_model(name):
     return matched
 
 
-def detect_and_log_sold():
+def detect_and_log_sold(force=False):
     """
     Compare previous scrape's listings with today's. Any listing URL that was
     in previous and is not in current = considered sold. Push to SoldLog.
     Only logs vehicles that match TARGET_VEHICLES.
+
+    force=True bypasses the MAX_GAP_DAYS check. Use this for one-shot
+    catch-up after the scheduler has been broken for several days; all
+    accumulated sold units will be lumped onto today's date (no way to
+    reconstruct the actual sold-day for past listings).
     """
     db = SessionLocal()
     try:
@@ -131,13 +136,19 @@ def detect_and_log_sold():
         prev_date_obj = datetime.strptime(str(prev_date_row[0]), '%Y-%m-%d').date()
         gap_days = (today - prev_date_obj).days
         MAX_GAP_DAYS = 2  # Only compare consecutive scrapes (max 2-day gap)
-        if gap_days > MAX_GAP_DAYS:
+        if gap_days > MAX_GAP_DAYS and not force:
             logger.warning(
                 f"Skipping sold detection: gap is {gap_days} days (prev={prev_date_obj}, today={today}). "
                 f"Gap too large — cannot reliably attribute sold units to a single day. "
-                f"Run daily scrapes to enable per-day sold tracking."
+                f"Call /api/sold-log/catchup to force-log accumulated sold units onto today, "
+                f"or run daily scrapes to enable per-day sold tracking."
             )
             return 0
+        if gap_days > MAX_GAP_DAYS and force:
+            logger.warning(
+                f"[CATCHUP] Gap is {gap_days} days but force=True — logging accumulated "
+                f"sold units onto {today}. Past day-level granularity is lost."
+            )
 
         prev_date = prev_date_obj
         prev_start = datetime.combine(datetime.strptime(str(prev_date), '%Y-%m-%d').date(), datetime.min.time())

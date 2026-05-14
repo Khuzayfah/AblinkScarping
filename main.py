@@ -278,6 +278,28 @@ async def get_status(db: Session = Depends(get_db)):
     }
 
 
+@app.post("/api/sold-log/catchup")
+async def catchup_sold_log():
+    """Force-run sold detection bypassing the MAX_GAP_DAYS check.
+
+    Use this once after the scheduler has been broken for several days:
+    all accumulated sold units (units that disappeared while scraping was
+    down) get logged onto today's date. Past day-level granularity is
+    permanently lost — there's no way to know which exact day each unit
+    actually sold on. This is a one-shot recovery tool, not for daily use.
+    """
+    count = detect_and_log_sold(force=True)
+    return {
+        "logged": count,
+        "message": (
+            f"Catch-up complete: {count} sold unit(s) logged onto today."
+            if count > 0
+            else "No sold units detected. Either no listings disappeared, "
+                 "or there is no previous active-listing snapshot to compare against."
+        )
+    }
+
+
 @app.post("/api/schedule")
 async def update_schedule(
     body: Dict[str, Any] = Body(...),
