@@ -30,6 +30,16 @@ function getLocalDateStr(date) {
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+function getSGTDateStr() {
+    // Always return today's date in Singapore Time (UTC+8)
+    var now = new Date();
+    var sgt = new Date(now.getTime() + (8 * 60 - now.getTimezoneOffset()) * 60000);
+    return sgt.getFullYear() + '-' + String(sgt.getMonth() + 1).padStart(2, '0') + '-' + String(sgt.getDate()).padStart(2, '0');
+}
+
+// Global scrape status (populated by loadStatus, used by loadDailyReport)
+var _scrapeStatus = { healthy: true, lastError: null, lastSuccess: null, nextRun: null };
+
 function showNotification(message, isError) {
     isError = isError || false;
     var toast = document.getElementById('notificationToast');
@@ -65,6 +75,44 @@ async function loadStatus() {
         var nextEl = document.getElementById('nextRunDisplay');
         if (nextEl) {
             nextEl.textContent = s.next_run_display || '—';
+        }
+
+        // Update global scrape health state
+        _scrapeStatus.healthy = s.scrape_healthy !== false;
+        _scrapeStatus.lastError = s.last_scrape_error || null;
+        _scrapeStatus.lastSuccess = s.last_successful_scrape_at || null;
+        _scrapeStatus.nextRun = s.next_run_display || null;
+
+        // Check if data is stale (last successful scrape > 24h ago or never)
+        var isStale = false;
+        var staleDays = 0;
+        if (s.last_successful_scrape_at) {
+            var lastOk = new Date(s.last_successful_scrape_at);
+            staleDays = Math.floor((Date.now() - lastOk.getTime()) / 86400000);
+            if (staleDays >= 1) isStale = true;
+        } else if (s.last_scrape_at) {
+            isStale = true; // attempted but never succeeded
+        }
+
+        var banner = document.getElementById('scrapeWarningBanner');
+        if (banner) {
+            if (!_scrapeStatus.healthy || isStale) {
+                var staleMsg = staleDays > 0
+                    ? 'Data belum di-update <strong>' + staleDays + ' hari</strong>. '
+                    : 'Scraping terakhir <strong>gagal</strong>. ';
+                var errMsg = _scrapeStatus.lastError
+                    ? '<br><small style="opacity:0.85">Error: ' + _scrapeStatus.lastError + '</small>'
+                    : '';
+                var nextMsg = _scrapeStatus.nextRun
+                    ? ' Next auto-scrape: <strong>' + _scrapeStatus.nextRun + '</strong>.'
+                    : '';
+                banner.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-2"></i>'
+                    + staleMsg + 'Data ditampilkan mungkin tidak akurat.' + nextMsg + errMsg
+                    + ' <button class="btn btn-sm btn-warning ms-2" onclick="triggerScrape()" style="vertical-align:middle;">Scrape Sekarang</button>';
+                banner.style.display = 'block';
+            } else {
+                banner.style.display = 'none';
+            }
         }
     } catch (e) {
         console.error(e);
@@ -190,19 +238,20 @@ function setReportDate(val) {
 
 function navDate(offset) {
     var current = getReportDate();
-    if (!current) current = getLocalDateStr();
+    if (!current) current = getSGTDateStr();
     var d = new Date(current + 'T00:00:00');
     d.setDate(d.getDate() + offset);
-    var today = new Date();
-    today.setHours(0,0,0,0);
-    if (d > today) return; // Don't go to future
+    // Compare against SGT "today" so Singapore users are not blocked by
+    // browser timezone being behind SGT.
+    var todaySGT = getSGTDateStr();
     var newDate = getLocalDateStr(d);
+    if (newDate > todaySGT) return; // Don't go past today (SGT)
     setReportDate(newDate);
     loadDailyReport();
 }
 
 function navToday() {
-    var today = getLocalDateStr();
+    var today = getSGTDateStr();
     setReportDate(today);
     loadDailyReport();
 }
@@ -241,11 +290,31 @@ async function loadDailyReport() {
         if (hasSold) {
             buildTable(data.daily_table);
         } else {
-            // Show empty message inside table
+            // Show empty message inside table — be specific about why
             var tbody = document.getElementById('dataTableBody');
             var thead = document.getElementById('tableHead');
             thead.innerHTML = '';
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:#9ca3af;"><i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>No sold data for this date.<br>Click REFRESH DATA to scrape, or navigate to another date.</td></tr>';
+            var todaySGT = getSGTDateStr();
+            var viewedDate = data.date || getReportDate();
+            var daysDiff = Math.floor((new Date(todaySGT) - new Date(viewedDate)) / 86400000);
+            var emptyMsg;
+            if (!_scrapeStatus.healthy && daysDiff <= 7) {
+                var nextInfo = _scrapeStatus.nextRun ? ' Next auto-scrape: <b>' + _scrapeStatus.nextRun + '</b>.' : '';
+                emptyMsg = '<i class="bi bi-exclamation-triangle" style="font-size:2rem;display:block;margin-bottom:8px;color:#f59e0b;"></i>'
+                    + '<b>Auto-scraping tidak jalan untuk tanggal ini.</b><br>'
+                    + (daysDiff === 0 ? 'Data hari ini belum ada.' : daysDiff + ' hari data tidak ter-update.')
+                    + nextInfo + '<br><br>'
+                    + '<button class="btn btn-sm btn-warning" onclick="triggerScrape()">Scrape Sekarang</button>';
+            } else if (daysDiff === 0) {
+                emptyMsg = '<i class="bi bi-clock" style="font-size:2rem;display:block;margin-bottom:8px;"></i>'
+                    + 'Data hari ini belum ada.<br>'
+                    + (_scrapeStatus.nextRun ? 'Auto-scrape berikutnya: <b>' + _scrapeStatus.nextRun + '</b>' : 'Klik REFRESH DATA untuk scrape sekarang.')
+                    + '<br><br><button class="btn btn-sm btn-success" onclick="triggerScrape()">Scrape Sekarang</button>';
+            } else {
+                emptyMsg = '<i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>'
+                    + 'No sold data for this date.<br>Navigate to another date or click REFRESH DATA.';
+            }
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:#9ca3af;">' + emptyMsg + '</td></tr>';
         }
         var totalSold = data.summary ? (data.summary.total_sold || 0) : 0;
         var badge = document.getElementById('soldCountBadge');
@@ -926,7 +995,8 @@ function autoExpandAndLoadDepreciationTables() {
 document.addEventListener('DOMContentLoaded', function () {
     loadStatus();
     loadDashboardSummary();
-    var today = getLocalDateStr();
+    // Use SGT date as default so the dashboard always opens on Singapore "today"
+    var today = getSGTDateStr();
     setReportDate(today);
     loadDailyReport();
     loadHistory();
