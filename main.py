@@ -183,7 +183,12 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
 
     def run_scrape():
         from database import SessionLocal
+        from scheduler import _set_app_setting
         scraper = SGCarMartJSScraper(headless=True)
+        scrape_error = None
+        active_count = 0
+        avl_count = 0
+        comparison_sold = 0
         try:
             # Step 1: Scrape active listings
             logger.info("[MANUAL] Step 1/3: Scraping active listings...")
@@ -192,13 +197,13 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
             logger.info(f"[MANUAL] Active listings: {active_count} vehicles found")
 
             # Step 2: Detect sold by comparison (previous vs current) → sold_log
-            comparison_sold = 0
             if results:
                 logger.info("[MANUAL] Step 2/3: Detecting sold vehicles (comparison)...")
                 comparison_sold = detect_and_log_sold()
                 logger.info(f"[MANUAL] Sold today: {comparison_sold} vehicles disappeared since last scrape")
             else:
                 logger.warning("[MANUAL] Skipping sold detection - no active listings scraped")
+                scrape_error = "Active listings scrape returned 0 results (likely blocked / Cloudflare)"
 
             # Step 3: Scrape accumulated sold from SGCarMart (avl=s) → sgcarmart_sold
             logger.info("[MANUAL] Step 3/3: Scraping SGCarMart sold listings (avl=s)...")
@@ -206,11 +211,15 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
             avl_count = len(sold_results) if sold_results else 0
             logger.info(f"[MANUAL] SGCarMart sold (accumulated): {avl_count} vehicles")
 
+            if active_count == 0 and avl_count == 0:
+                scrape_error = scrape_error or "Both active and sold scrapes returned 0 results"
+
             logger.info(f"[MANUAL] Complete: Active={active_count} | Sold today={comparison_sold} | SGCarMart sold={avl_count}")
         except Exception as e:
             logger.error(f"Scrape failed with error: {e}")
             import traceback
             traceback.print_exc()
+            scrape_error = f"{type(e).__name__}: {e}"
         finally:
             d = SessionLocal()
             try:
@@ -219,7 +228,14 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
                     lg.status = "Ready"
                     lg.last_scrape_at = datetime.now()
                     d.commit()
-                    logger.info("Scrape status set to Ready")
+                # Update health fields so /api/status reflects real outcome
+                if scrape_error:
+                    _set_app_setting(d, 'last_scrape_error', scrape_error)
+                else:
+                    _set_app_setting(d, 'last_scrape_error', '')
+                    _set_app_setting(d, 'last_successful_scrape_at', datetime.now().isoformat())
+                d.commit()
+                logger.info("Scrape status set to Ready")
             finally:
                 d.close()
 
