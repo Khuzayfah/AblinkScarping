@@ -29,6 +29,53 @@ def _set_app_setting(db, key: str, value: str):
         db.add(AppSetting(key=key, value=value))
 
 
+def _get_app_setting(db, key: str, default: str = "") -> str:
+    row = db.query(AppSetting).filter(AppSetting.key == key).first()
+    return row.value if (row and row.value is not None) else default
+
+
+def _fire_failure_webhook(consecutive_failures: int, error: str):
+    """POST a failure alert to WEBHOOK_URL env var (if set). Designed to be
+    compatible with Slack/Discord/n8n/Make webhook formats.
+
+    Runs in a daemon thread with a hard timeout — never blocks scheduler.
+    """
+    import os as _os
+    webhook_url = _os.environ.get("WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return  # Alerting opt-in only
+
+    import threading as _th
+
+    def _send():
+        try:
+            import json as _json
+            import urllib.request as _ur
+            payload = {
+                "text": (
+                    f":warning: Ablink scraper has failed "
+                    f"{consecutive_failures} consecutive runs. "
+                    f"Last error: {error[:300]}"
+                ),
+                "service": "ablink-scraper",
+                "consecutive_failures": consecutive_failures,
+                "error": error[:1000],
+            }
+            req = _ur.Request(
+                webhook_url,
+                data=_json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with _ur.urlopen(req, timeout=10) as resp:
+                logger.info(f"[ALERT] Webhook POST → HTTP {resp.status}")
+        except Exception as e:
+            logger.warning(f"[ALERT] Webhook POST failed: {e}")
+
+    t = _th.Thread(target=_send, daemon=True)
+    t.start()
+
+
 class ScraperScheduler:
     """Scheduler for automated scraping"""
 
@@ -123,10 +170,32 @@ class ScraperScheduler:
                 self._set_status("Ready", update_last_scrape=True,
                                  last_error=scrape_error)
                 logger.error(f"===== SCHEDULED SCRAPE FINISHED WITH ERROR: {scrape_error} =====")
+                # Track consecutive failures + alert webhook on threshold.
+                _db = SessionLocal()
+                try:
+                    n = int(_get_app_setting(_db, 'consecutive_scrape_failures', '0') or 0)
+                    n += 1
+                    _set_app_setting(_db, 'consecutive_scrape_failures', str(n))
+                    _db.commit()
+                    if n in (3, 6, 12):  # Alert at 3, then every doubling
+                        _fire_failure_webhook(n, scrape_error)
+                except Exception as e:
+                    logger.warning(f"[ALERT] Failure-counter update error: {e}")
+                finally:
+                    _db.close()
             else:
                 self._set_status("Ready", update_last_scrape=True,
                                  last_error="", last_success=True)
                 logger.info(f"===== SCHEDULED SCRAPE COMPLETED =====")
+                # Reset consecutive-failure counter on success.
+                _db = SessionLocal()
+                try:
+                    _set_app_setting(_db, 'consecutive_scrape_failures', '0')
+                    _db.commit()
+                except Exception:
+                    pass
+                finally:
+                    _db.close()
 
             logger.info(f"  Active: {active_count} | Sold today: {comparison_sold} | SGCarMart sold: {avl_count}")
 
@@ -227,6 +296,24 @@ class ScraperScheduler:
             misfire_grace_time=MISFIRE_GRACE_SECONDS,
             # Collapse multiple missed runs into one — we never want to
             # double-scrape if APScheduler thinks several intervals elapsed.
+            coalesce=True,
+            max_instances=1,
+        )
+
+        # Weekly DB pruning: delete vehicle_listings older than 90 days +
+        # VACUUM to reclaim space. The dashboard only needs ~14 days for the
+        # 7d trend; keeping forever bloats the DB toward multi-GB territory
+        # where SQLite queries slow noticeably. Runs Sunday 04:00 SGT (off-peak,
+        # 2h before first daily scrape, won't compete with scrapers for lock).
+        # sold_log and sgcarmart_sold are NOT pruned — those are the
+        # historical record we actually care about.
+        self.scheduler.add_job(
+            self._prune_old_listings_job,
+            trigger=CronTrigger(day_of_week='sun', hour=4, minute=0, timezone=SGT),
+            id='prune_listings',
+            name='Prune vehicle_listings > 90 days + VACUUM',
+            replace_existing=True,
+            misfire_grace_time=6 * 3600,
             coalesce=True,
             max_instances=1,
         )
@@ -380,6 +467,41 @@ class ScraperScheduler:
         """Stop the scheduler"""
         self.scheduler.shutdown()
         logger.info("Scheduler stopped")
+
+    def _prune_old_listings_job(self):
+        """Delete vehicle_listings older than 90 days + VACUUM. sold_log and
+        sgcarmart_sold are kept forever as the historical record."""
+        import sqlite3 as _s3
+        import os as _os
+        try:
+            db_url = config.DATABASE_URL
+            if db_url.startswith("sqlite:///"):
+                db_path = db_url[len("sqlite:///"):]
+            else:
+                db_path = "sgcarmart_data.db"
+            if not _os.path.exists(db_path):
+                return
+            size_before = _os.path.getsize(db_path)
+            conn = _s3.connect(db_path, timeout=60)
+            try:
+                cur = conn.execute(
+                    "DELETE FROM vehicle_listings "
+                    "WHERE scrape_date < date('now', '-90 days')"
+                )
+                deleted = cur.rowcount
+                conn.commit()
+                # VACUUM cannot run inside a transaction
+                conn.isolation_level = None
+                conn.execute("VACUUM")
+            finally:
+                conn.close()
+            size_after = _os.path.getsize(db_path)
+            logger.info(
+                f"[PRUNE] Deleted {deleted:,} vehicle_listings >90d old | "
+                f"DB size {size_before:,} -> {size_after:,} bytes"
+            )
+        except Exception as e:
+            logger.warning(f"[PRUNE] Job failed: {e}")
 
     def _wal_checkpoint_job(self):
         """Run PRAGMA wal_checkpoint(TRUNCATE) to fold pending WAL pages into

@@ -172,14 +172,140 @@ async def get_vehicle_categories():
         "target_vehicles": config.TARGET_VEHICLES
     }
 
+@app.get("/api/health")
+async def health_check():
+    """Operator-facing health endpoint — surfaces disk/DB/memory metrics
+    that aren't visible in the normal /api/status. Useful for:
+      - Catching disk-fill before Coolify volume exhausts
+      - Spotting unbounded DB growth (vehicle_listings row count)
+      - Detecting stuck scrapes via 'consecutive_scrape_failures'
+
+    Returns 200 always; check `healthy` boolean to gate alerts."""
+    import os
+    import sqlite3
+    import shutil
+
+    out = {
+        "healthy": True,
+        "warnings": [],
+    }
+
+    # DB file metrics
+    db_url = config.DATABASE_URL
+    db_path = db_url[len("sqlite:///"):] if db_url.startswith("sqlite:///") else "sgcarmart_data.db"
+    try:
+        if os.path.exists(db_path):
+            db_size = os.path.getsize(db_path)
+            wal_size = os.path.getsize(db_path + "-wal") if os.path.exists(db_path + "-wal") else 0
+            out["db"] = {
+                "path": db_path,
+                "size_bytes": db_size,
+                "size_mb": round(db_size / 1024 / 1024, 2),
+                "wal_size_bytes": wal_size,
+                "wal_size_mb": round(wal_size / 1024 / 1024, 2),
+            }
+            # Row counts (sample, with short timeout)
+            try:
+                conn = sqlite3.connect(db_path, timeout=5)
+                try:
+                    rows = {}
+                    for t in ("vehicle_listings", "sold_log", "sgcarmart_sold", "listing_cache"):
+                        try:
+                            rows[t] = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                        except sqlite3.OperationalError:
+                            rows[t] = None
+                    out["db"]["row_counts"] = rows
+                    if rows.get("vehicle_listings") and rows["vehicle_listings"] > 500_000:
+                        out["warnings"].append(
+                            f"vehicle_listings has {rows['vehicle_listings']:,} rows — "
+                            f"weekly prune job may be stuck"
+                        )
+                    if wal_size > 100 * 1024 * 1024:
+                        out["warnings"].append(
+                            f"-wal file is {wal_size / 1024 / 1024:.1f} MB — "
+                            f"checkpoint may be stuck (expected: <10 MB)"
+                        )
+                finally:
+                    conn.close()
+            except Exception as e:
+                out["db"]["row_counts_error"] = str(e)
+        else:
+            out["healthy"] = False
+            out["warnings"].append(f"DB file missing: {db_path}")
+    except Exception as e:
+        out["db_error"] = str(e)
+
+    # Disk free space on the volume holding the DB
+    try:
+        st = shutil.disk_usage(os.path.dirname(os.path.abspath(db_path)) or ".")
+        out["disk"] = {
+            "total_gb": round(st.total / 1024**3, 2),
+            "used_gb": round(st.used / 1024**3, 2),
+            "free_gb": round(st.free / 1024**3, 2),
+            "percent_used": round(st.used * 100.0 / st.total, 1),
+        }
+        if st.free < 200 * 1024 * 1024:  # < 200 MB free
+            out["healthy"] = False
+            out["warnings"].append(f"Low disk: {st.free / 1024**2:.0f} MB free")
+        elif st.free < 1 * 1024**3:  # < 1 GB free
+            out["warnings"].append(f"Disk getting full: {st.free / 1024**3:.2f} GB free")
+    except Exception as e:
+        out["disk_error"] = str(e)
+
+    # Consecutive failure count (alerts if >= 3)
+    try:
+        db = SessionLocal()
+        try:
+            from scheduler import _get_app_setting
+            n = int(_get_app_setting(db, 'consecutive_scrape_failures', '0') or 0)
+            out["consecutive_scrape_failures"] = n
+            if n >= 3:
+                out["healthy"] = False
+                out["warnings"].append(f"{n} consecutive scrape failures")
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+    # Memory (optional, only if psutil installed)
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        out["memory"] = {
+            "total_mb": round(mem.total / 1024**2),
+            "available_mb": round(mem.available / 1024**2),
+            "percent_used": mem.percent,
+        }
+        if mem.percent > 95:
+            out["warnings"].append(f"Memory pressure: {mem.percent}% used")
+    except ImportError:
+        pass  # psutil not installed — skip memory check
+    except Exception as e:
+        out["memory_error"] = str(e)
+
+    return out
+
+
 @app.post("/api/scrape")
 async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Trigger manual scraping (Refresh Data)"""
+    """Trigger manual scraping (Refresh Data).
+
+    Uses an atomic SQL UPDATE...WHERE status='Ready' to claim the lock,
+    instead of read-then-write — the previous version had a microsecond
+    race window where two parallel clicks could both pass the
+    `if log.status == "Scraping"` check and start two scrapes.
+    """
     log = _ensure_scrape_log(db)
-    if log.status == "Scraping":
-        raise HTTPException(status_code=409, detail="Scrape already in progress")
-    log.status = "Scraping"
+    from sqlalchemy import text as _sql_text
+    result = db.execute(
+        _sql_text("UPDATE scrape_log SET status='Scraping' WHERE id=:id AND status='Ready'"),
+        {"id": log.id}
+    )
     db.commit()
+    if result.rowcount == 0:
+        # Either status was already 'Scraping' or row vanished — either
+        # way someone else got the lock.
+        raise HTTPException(status_code=409, detail="Scrape already in progress")
 
     def run_scrape():
         from database import SessionLocal
