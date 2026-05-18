@@ -2091,31 +2091,25 @@ async def download_backup():
 async def restore_backup(file: UploadFile = File(...)):
     """Restore database from an uploaded backup file.
 
-    Robust restore flow that addresses past failures where the uploaded DB
-    was written to disk but the live app kept serving the old data:
+    Simple, same as original — just write the file. The previous version
+    had three bugs that made it silently 'succeed' without the new data
+    becoming visible; we keep ONLY the minimal fixes for those:
 
-    1. Reject non-.db filenames early.
-    2. Save the upload to a temp path (atomic-ish, doesn't touch live DB yet).
-    3. Validate the uploaded file is a real SQLite DB with expected tables —
-       prevents overwriting live data with garbage.
-    4. Stop the scheduler so no scrape writes during the swap.
-    5. Dispose the SQLAlchemy engine — closes all pooled connections so they
-       can't keep reading old pages from the file we're about to replace.
-    6. Delete WAL/SHM sidecar files belonging to the OLD database — leaving
-       them behind causes the new file to be read as old-data-plus-WAL,
-       which is exactly the 'data tidak berubah' symptom.
-    7. Move the temp file into place.
-    8. Re-run init_db() so backups from older schemas get the new tables /
-       columns the current code expects (year_min, listing_cache, etc.).
-    9. Restart the scheduler — its own startup catch-up logic handles
-       re-firing a scrape if the restored DB is stale.
+      a) engine.dispose() before overwrite — otherwise SQLAlchemy's pool
+         keeps serving from connections pinned to the OLD file.
+      b) Delete .db-wal / .db-shm / -journal sidecars — leaving them
+         behind makes SQLite layer the OLD database's WAL pages on top
+         of the new file (the 'data tidak ganti' bug).
+      c) scheduler.stop() before the write, scheduler.start() after —
+         so a concurrent scrape can't corrupt the swap.
+
+    No file validation, no schema migration, no temp file — exactly the
+    same shape as the original endpoint.
     """
     import os
     import shutil
-    import sqlite3
-    import tempfile
 
-    if not file.filename or not file.filename.lower().endswith(".db"):
+    if not file.filename.endswith(".db"):
         raise HTTPException(status_code=400, detail="File harus berformat .db (SQLite backup)")
 
     db_url = config.DATABASE_URL
@@ -2123,124 +2117,51 @@ async def restore_backup(file: UploadFile = File(...)):
         db_path = db_url[len("sqlite:///"):]
     else:
         db_path = "sgcarmart_data.db"
-    db_path = os.path.abspath(db_path)
-    db_dir = os.path.dirname(db_path) or "."
 
-    # 1+2. Stream the upload to a temp file in the SAME directory (so we can
-    # os.replace atomically on the same filesystem).
-    tmp_fd, tmp_path = tempfile.mkstemp(prefix=".restore_", suffix=".db", dir=db_dir)
-    written = 0
+    # Backup current db before overwrite (same as original)
+    if os.path.exists(db_path):
+        try:
+            shutil.copy2(db_path, db_path + ".before_restore")
+        except Exception as e:
+            logger.warning(f"[RESTORE] Could not snapshot old DB: {e}")
+
+    # Pause scheduler so no scrape writes during the swap
     try:
-        with os.fdopen(tmp_fd, "wb") as out:
-            while True:
-                chunk = await file.read(1024 * 1024)  # 1 MB chunks
-                if not chunk:
-                    break
-                out.write(chunk)
-                written += len(chunk)
+        scheduler.stop()
+    except Exception:
+        pass
 
-        if written == 0:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-        # 3. Validate it's a real SQLite DB with our expected tables.
-        try:
-            conn = sqlite3.connect(tmp_path)
-            try:
-                cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                tables = {row[0] for row in cur.fetchall()}
-            finally:
-                conn.close()
-        except sqlite3.DatabaseError as e:
-            raise HTTPException(status_code=400, detail=f"File is not a valid SQLite database: {e}")
-
-        required = {"vehicle_listings"}  # the core table — others get init_db'd later
-        missing = required - tables
-        if missing:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Backup file is missing required tables: {sorted(missing)}. "
-                       f"Found tables: {sorted(tables)}"
-            )
-
-        # 4. Stop scheduler so no scrape writes during the swap.
-        try:
-            scheduler.stop()
-            logger.info("[RESTORE] Scheduler stopped for restore")
-        except Exception as e:
-            logger.warning(f"[RESTORE] Could not stop scheduler cleanly: {e}")
-
-        # 5. Dispose engine — closes all pooled connections to the OLD file.
-        # Without this, new requests would be served from connections still
-        # pinned to the OLD file's pages.
-        try:
-            from database import engine as _engine
-            _engine.dispose()
-            logger.info("[RESTORE] SQLAlchemy engine disposed")
-        except Exception as e:
-            logger.warning(f"[RESTORE] engine.dispose() warning: {e}")
-
-        # 6. Snapshot current DB + sidecar files before overwriting.
-        # 7. Atomically move the new file into place.
-        if os.path.exists(db_path):
-            try:
-                shutil.copy2(db_path, db_path + ".before_restore")
-            except Exception as e:
-                logger.warning(f"[RESTORE] Could not snapshot old DB: {e}")
-
-        # Delete WAL/SHM that belonged to the OLD database — leaving them
-        # behind makes SQLite splice old WAL pages onto the new file.
-        for sidecar_ext in ("-wal", "-shm", "-journal"):
-            sidecar = db_path + sidecar_ext
-            if os.path.exists(sidecar):
-                try:
-                    os.remove(sidecar)
-                    logger.info(f"[RESTORE] Removed sidecar {sidecar}")
-                except Exception as e:
-                    logger.warning(f"[RESTORE] Could not remove sidecar {sidecar}: {e}")
-
-        os.replace(tmp_path, db_path)  # atomic on same filesystem
-        tmp_path = None  # already moved, don't double-clean
-        logger.info(f"[RESTORE] Wrote {written:,} bytes to {db_path}")
-
-        # 8. Apply current schema (adds any tables/columns the backup is
-        # missing — backups from older code can still be restored).
-        try:
-            from database import init_db as _init
-            _init()
-            logger.info("[RESTORE] init_db() applied — schema is current")
-        except Exception as e:
-            logger.error(f"[RESTORE] init_db() failed: {e}")
-
-        # 9. Restart scheduler. Its own startup catch-up will fire a scrape
-        # immediately if the restored DB is stale (>9h since last success).
-        try:
-            scheduler.start()
-            logger.info("[RESTORE] Scheduler restarted")
-        except Exception as e:
-            logger.error(f"[RESTORE] Could not restart scheduler: {e}")
-
-        return {
-            "success": True,
-            "bytes_written": written,
-            "tables_found": sorted(tables),
-            "message": (
-                f"Database berhasil di-restore ({written:,} bytes). "
-                f"Engine pool sudah di-dispose dan WAL/SHM lama dihapus — "
-                f"refresh halaman untuk lihat data baru."
-            )
-        }
-    except HTTPException:
-        raise
+    # Close all SQLAlchemy connections to the OLD file
+    try:
+        from database import engine as _engine
+        _engine.dispose()
     except Exception as e:
-        logger.error(f"[RESTORE] Unexpected error: {e}")
-        raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
-    finally:
-        # Clean up temp file if we bailed before swapping it in.
-        if tmp_path and os.path.exists(tmp_path):
+        logger.warning(f"[RESTORE] engine.dispose() warning: {e}")
+
+    # Wipe sidecar files belonging to the OLD database
+    for ext in ("-wal", "-shm", "-journal"):
+        sidecar = db_path + ext
+        if os.path.exists(sidecar):
             try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
+                os.remove(sidecar)
+            except Exception as e:
+                logger.warning(f"[RESTORE] Could not remove {sidecar}: {e}")
+
+    # Write uploaded file (same as original — direct write)
+    contents = await file.read()
+    with open(db_path, "wb") as f:
+        f.write(contents)
+
+    # Restart scheduler so it picks up new db connections
+    try:
+        scheduler.start()
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "message": f"Database berhasil di-restore ({len(contents):,} bytes). Refresh halaman."
+    }
 
 
 # ============================================================
