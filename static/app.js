@@ -1348,8 +1348,12 @@ async function loadDashboardSummary() {
 
         var badge = document.getElementById('dashSnapshotBadge');
         if (badge) {
+            var yearSuffix = '';
+            if (d.year_min != null || d.year_max != null) {
+                yearSuffix = ' · Year ' + (d.year_min != null ? d.year_min : '…') + '–' + (d.year_max != null ? d.year_max : '…');
+            }
             badge.textContent = d.snapshot_date
-                ? ('Snapshot: ' + d.snapshot_date + (d.compare_date ? ' vs ' + d.compare_date : ''))
+                ? ('Snapshot: ' + d.snapshot_date + (d.compare_date ? ' vs ' + d.compare_date : '') + yearSuffix)
                 : 'No data yet';
         }
 
@@ -1427,7 +1431,7 @@ async function loadDashboardSummary() {
 // Dashboard Customize Modal
 // ============================================================
 var _dashAvailableModels = [];
-var _dashCfgState = { compare_days: 7, categories: [], watchlist: [] };
+var _dashCfgState = { compare_days: 7, year_min: null, year_max: null, categories: [], watchlist: [] };
 
 async function openDashboardSettings() {
     try {
@@ -1446,6 +1450,8 @@ async function openDashboardSettings() {
 
 function _renderDashSettings() {
     document.getElementById('dashCfgCompareDays').value = _dashCfgState.compare_days || 7;
+    document.getElementById('dashCfgYearMin').value = (_dashCfgState.year_min != null) ? _dashCfgState.year_min : '';
+    document.getElementById('dashCfgYearMax').value = (_dashCfgState.year_max != null) ? _dashCfgState.year_max : '';
 
     var catBox = document.getElementById('dashCfgCategories');
     catBox.innerHTML = (_dashCfgState.categories || []).map(function (c, idx) {
@@ -1543,10 +1549,19 @@ function removeDashWatchModel(idx) {
     _renderDashSettings();
 }
 
+function clearDashYearFilter() {
+    document.getElementById('dashCfgYearMin').value = '';
+    document.getElementById('dashCfgYearMax').value = '';
+}
+
 async function saveDashSettings() {
     var cd = parseInt(document.getElementById('dashCfgCompareDays').value, 10);
     if (isNaN(cd) || cd < 1) cd = 7;
     _dashCfgState.compare_days = cd;
+    var ymin = parseInt(document.getElementById('dashCfgYearMin').value, 10);
+    var ymax = parseInt(document.getElementById('dashCfgYearMax').value, 10);
+    _dashCfgState.year_min = isNaN(ymin) ? null : ymin;
+    _dashCfgState.year_max = isNaN(ymax) ? null : ymax;
     try {
         var r = await fetchWithRetry('/api/dashboard-config', {
             method: 'POST',

@@ -233,7 +233,11 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
                     _set_app_setting(d, 'last_scrape_error', scrape_error)
                 else:
                     _set_app_setting(d, 'last_scrape_error', '')
-                    _set_app_setting(d, 'last_successful_scrape_at', datetime.now().isoformat())
+                    # SGT-aware so scheduler's startup catch-up check compares
+                    # apples-to-apples regardless of container TZ.
+                    import pytz as _tz
+                    _set_app_setting(d, 'last_successful_scrape_at',
+                                     datetime.now(_tz.timezone('Asia/Singapore')).isoformat())
                 d.commit()
                 logger.info("Scrape status set to Ready")
             finally:
@@ -1399,6 +1403,8 @@ _DASHBOARD_CONFIG_KEY = "dashboard_config"
 # (or TARGET_DISPLAY_NAMES mapped names like "TOYOTA DYNA 150 3.0").
 _DEFAULT_DASHBOARD_CONFIG = {
     "compare_days": 7,
+    "year_min": None,
+    "year_max": None,
     "categories": [
         {"name": "10FT DIESEL", "models": list(config.VEHICLE_CATEGORIES["10FT DIESEL"])},
         {"name": "14FT DIESEL", "models": list(config.VEHICLE_CATEGORIES["14FT DIESEL"])},
@@ -1426,6 +1432,8 @@ def _load_dashboard_config(db: Session) -> dict:
         if not isinstance(cfg, dict) or "categories" not in cfg or "watchlist" not in cfg:
             return _DEFAULT_DASHBOARD_CONFIG
         cfg.setdefault("compare_days", 7)
+        cfg.setdefault("year_min", None)
+        cfg.setdefault("year_max", None)
         return cfg
     except Exception:
         return _DEFAULT_DASHBOARD_CONFIG
@@ -1460,9 +1468,13 @@ def _parse_dep_value(dep_str):
         return None
 
 
-def _aggregate_active_snapshot(db: Session, snapshot_date):
+def _aggregate_active_snapshot(db: Session, snapshot_date, year_min=None, year_max=None):
     """Return dict model->{'units': int, 'deps': [int]} for the active listings
-    on (or closest before) snapshot_date. Uses VehicleListing scrape_date date-bucket."""
+    on (or closest before) snapshot_date. Uses VehicleListing scrape_date date-bucket.
+
+    If year_min/year_max provided, only includes listings whose registered_year
+    falls inside the inclusive range. Rows with NULL registered_year are excluded
+    when any year bound is set."""
     # Bypass SQLAlchemy entirely — its DateTime/Date processor on SQLite chokes
     # on Python 3.14 fromisoformat when called from cyextension on certain rows.
     # We use a fresh sqlite3 connection and pull rows as plain tuples.
@@ -1487,16 +1499,24 @@ def _aggregate_active_snapshot(db: Session, snapshot_date):
         start_str = datetime.combine(actual, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
         end_str = datetime.combine(next_day, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
         cursor = conn.execute(
-            "SELECT make_model, depreciation, listing_url FROM vehicle_listings "
+            "SELECT make_model, depreciation, listing_url, registered_year FROM vehicle_listings "
             "WHERE scrape_date >= ? AND scrape_date < ?",
             (start_str, end_str)
         )
         rows = cursor.fetchall()
     finally:
         conn.close()
+    has_year_filter = (year_min is not None) or (year_max is not None)
     seen = set()
     agg = {}
-    for make_model, dep_str, listing_url in rows:
+    for make_model, dep_str, listing_url, reg_year in rows:
+        if has_year_filter:
+            if reg_year is None:
+                continue
+            if year_min is not None and reg_year < year_min:
+                continue
+            if year_max is not None and reg_year > year_max:
+                continue
         url_key = _url_dedup_key(listing_url or '')
         if url_key:
             if url_key in seen:
@@ -1542,11 +1562,13 @@ async def dashboard_summary(db: Session = Depends(get_db)):
     """Aggregated dashboard: per-category metrics with 7d trend, sold counts, watchlist."""
     cfg = _load_dashboard_config(db)
     compare_days = int(cfg.get("compare_days", 7) or 7)
+    year_min = cfg.get("year_min")
+    year_max = cfg.get("year_max")
     today = datetime.now().date()
     compare_date = today - timedelta(days=compare_days)
 
-    cur_agg, cur_date = _aggregate_active_snapshot(db, today)
-    prev_agg, prev_date = _aggregate_active_snapshot(db, compare_date)
+    cur_agg, cur_date = _aggregate_active_snapshot(db, today, year_min, year_max)
+    prev_agg, prev_date = _aggregate_active_snapshot(db, compare_date, year_min, year_max)
 
     # Categories: from saved config (or defaults)
     categories_out = []
@@ -1633,6 +1655,8 @@ async def dashboard_summary(db: Session = Depends(get_db)):
         "snapshot_date": cur_date.isoformat() if cur_date else None,
         "compare_date": prev_date.isoformat() if prev_date else None,
         "compare_days": compare_days,
+        "year_min": year_min,
+        "year_max": year_max,
         "categories": categories_out,
         "sold_log_summary": sold_log_summary,
         "sgcarmart_sold_summary": sgcarmart_sold_summary,
@@ -1686,8 +1710,27 @@ async def set_dashboard_config(payload: Dict[str, Any] = Body(...), db: Session 
             compare_days = 7
     except (TypeError, ValueError):
         compare_days = 7
+
+    def _parse_year(v):
+        if v in (None, "", "null"):
+            return None
+        try:
+            y = int(v)
+        except (TypeError, ValueError):
+            return None
+        if y < 1980 or y > 2100:
+            return None
+        return y
+
+    year_min = _parse_year(payload.get("year_min"))
+    year_max = _parse_year(payload.get("year_max"))
+    if year_min is not None and year_max is not None and year_min > year_max:
+        year_min, year_max = year_max, year_min
+
     new_cfg = {
         "compare_days": compare_days,
+        "year_min": year_min,
+        "year_max": year_max,
         "categories": clean_cats,
         "watchlist": clean_wl,
     }

@@ -2,7 +2,7 @@
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import config
 from js_scraper import SGCarMartJSScraper
@@ -62,8 +62,11 @@ class ScraperScheduler:
             if last_error is not None:
                 _set_app_setting(db, 'last_scrape_error', last_error)
             if last_success is True:
+                # SGT-aware ISO so the catch-up check on startup compares
+                # apples-to-apples regardless of container TZ (Coolify Docker
+                # default is UTC, would otherwise be off by 8h).
                 _set_app_setting(db, 'last_successful_scrape_at',
-                                 datetime.now().isoformat())
+                                 datetime.now(SGT).isoformat())
             db.commit()
         except Exception as e:
             logger.error(f"Failed to set status to '{status}': {e}")
@@ -209,6 +212,98 @@ class ScraperScheduler:
             db.rollback()
         finally:
             db.close()
+
+        # Catch-up: if container restarted AFTER today's scheduled time and
+        # we have no successful scrape for today yet, fire one immediately.
+        # APScheduler's misfire_grace_time only helps when the scheduler was
+        # running at cron-time and had a delay — it does NOT recover missed
+        # runs across full container restarts (MemoryJobStore loses history).
+        self._schedule_startup_catchup_if_needed()
+
+    def _schedule_startup_catchup_if_needed(self):
+        """If today's scheduled run was missed (container was down), schedule
+        a one-shot catch-up ~45 seconds after startup so the app finishes
+        booting first. Coolify restarts after the daily cron time were
+        silently dropping the whole day's scrape.
+        """
+        db = SessionLocal()
+        try:
+            row = db.query(AppSetting).filter(
+                AppSetting.key == 'last_successful_scrape_at'
+            ).first()
+            last_success_str = row.value if row else None
+        except Exception as e:
+            logger.error(f"[CATCHUP] Could not read last_successful_scrape_at: {e}")
+            return
+        finally:
+            db.close()
+
+        now_sgt = datetime.now(SGT)
+        today_scheduled = now_sgt.replace(
+            hour=self._hour, minute=self._minute, second=0, microsecond=0
+        )
+
+        # Today's scheduled time hasn't passed yet — let the cron handle it.
+        if now_sgt < today_scheduled:
+            logger.info(
+                f"[CATCHUP] No catch-up needed — today's scheduled run "
+                f"({today_scheduled.strftime('%H:%M %Z')}) hasn't passed yet."
+            )
+            return
+
+        needs_catchup = False
+        reason = ""
+        if not last_success_str:
+            needs_catchup = True
+            reason = "no recorded successful scrape ever"
+        else:
+            try:
+                last_success = datetime.fromisoformat(last_success_str)
+                if last_success.tzinfo is None:
+                    # Legacy values were written naive in container-local TZ.
+                    # Coolify Docker default = UTC, so treat naive as UTC and
+                    # convert to SGT for the comparison below.
+                    last_success = pytz.UTC.localize(last_success).astimezone(SGT)
+                else:
+                    last_success = last_success.astimezone(SGT)
+                if last_success < today_scheduled:
+                    needs_catchup = True
+                    age_hours = (now_sgt - last_success).total_seconds() / 3600
+                    reason = (
+                        f"last success was {last_success.strftime('%Y-%m-%d %H:%M %Z')} "
+                        f"({age_hours:.1f}h ago) — before today's "
+                        f"{today_scheduled.strftime('%H:%M %Z')} window"
+                    )
+            except Exception as e:
+                needs_catchup = True
+                reason = f"could not parse last_successful_scrape_at ({e})"
+
+        if not needs_catchup:
+            logger.info(
+                f"[CATCHUP] No catch-up needed — last successful scrape "
+                f"already covers today's window."
+            )
+            return
+
+        catchup_at = datetime.now(SGT) + timedelta(seconds=45)
+        try:
+            self.scheduler.add_job(
+                self.scrape_job,
+                trigger='date',
+                run_date=catchup_at,
+                id='startup_catchup',
+                name='Startup Catch-up Scrape',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=MISFIRE_GRACE_SECONDS,
+                coalesce=True,
+            )
+            logger.warning(
+                f"[CATCHUP] Scheduled one-shot catch-up scrape at "
+                f"{catchup_at.strftime('%Y-%m-%d %H:%M:%S %Z')} — reason: {reason}"
+            )
+        except Exception as e:
+            logger.error(f"[CATCHUP] Failed to schedule catch-up: {e}")
 
     def update_schedule(self, hour: int, minute: int, interval_days: int = 1):
         """Update scrape time and interval"""
