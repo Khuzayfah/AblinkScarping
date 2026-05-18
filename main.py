@@ -2125,20 +2125,16 @@ async def restore_backup(file: UploadFile = File(...)):
         except Exception as e:
             logger.warning(f"[RESTORE] Could not snapshot old DB: {e}")
 
-    # Pause scheduler so no scrape writes during the swap
-    try:
-        scheduler.stop()
-    except Exception:
-        pass
-
-    # Close all SQLAlchemy connections to the OLD file
+    # Close all SQLAlchemy connections to the OLD file — otherwise the pool
+    # keeps serving cached pages from the pre-restore state.
     try:
         from database import engine as _engine
         _engine.dispose()
     except Exception as e:
         logger.warning(f"[RESTORE] engine.dispose() warning: {e}")
 
-    # Wipe sidecar files belonging to the OLD database
+    # Wipe sidecar files belonging to the OLD database — leaving WAL/SHM
+    # behind makes SQLite splice old WAL pages onto the new file.
     for ext in ("-wal", "-shm", "-journal"):
         sidecar = db_path + ext
         if os.path.exists(sidecar):
@@ -2152,11 +2148,12 @@ async def restore_backup(file: UploadFile = File(...)):
     with open(db_path, "wb") as f:
         f.write(contents)
 
-    # Restart scheduler so it picks up new db connections
+    # Restart scheduler with wait=False so we don't block on any in-flight
+    # scrape (used to make this endpoint hang for 5-10 minutes).
     try:
-        scheduler.start()
-    except Exception:
-        pass
+        scheduler.restart()
+    except Exception as e:
+        logger.warning(f"[RESTORE] Scheduler restart warning: {e}")
 
     return {
         "success": True,
