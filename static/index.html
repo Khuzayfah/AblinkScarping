@@ -1596,6 +1596,17 @@
                         <div class="form-text small">Trends compare current snapshot to the snapshot N days ago.</div>
                     </div>
 
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">Filter by year of registration</label>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <input type="number" class="form-control form-control-sm" id="dashCfgYearMin" min="1980" max="2100" placeholder="From (older)" style="max-width:140px;">
+                            <span class="text-muted small">to</span>
+                            <input type="number" class="form-control form-control-sm" id="dashCfgYearMax" min="1980" max="2100" placeholder="To (newer)" style="max-width:140px;">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearDashYearFilter()"><i class="bi bi-x-circle"></i> Clear</button>
+                        </div>
+                        <div class="form-text small">Only count listings whose registration year falls in this range (e.g. 2016 to 2020). Leave blank to include all years.</div>
+                    </div>
+
                     <hr>
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <strong class="small">Categories</strong>
