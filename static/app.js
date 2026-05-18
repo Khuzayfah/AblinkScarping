@@ -317,7 +317,12 @@ async function loadDailyReport() {
                     + '<button class="btn btn-sm btn-outline-warning" onclick="catchupSold()" title="Force sold-detection comparing today against the last known snapshot. Use only after a multi-day scrape outage.">Catch-up Sold Detection</button>';
             } else {
                 emptyMsg = '<i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>'
-                    + 'No sold data for this date.<br>Navigate to another date or click REFRESH DATA.';
+                    + 'No sold data for this date.<br>'
+                    + (daysDiff >= 0 && daysDiff <= 7
+                        ? 'This date is within the last week — if there was a scrape outage, you can force sold-detection onto today against the most recent snapshot.<br><br>'
+                            + '<button class="btn btn-sm btn-success me-2" onclick="triggerScrape()">Scrape Now</button>'
+                            + '<button class="btn btn-sm btn-outline-warning" onclick="catchupSold()" title="Force sold-detection comparing latest scrape against the last known snapshot. Use after a multi-day scrape outage.">Catch-up Sold Detection</button>'
+                        : 'Navigate to another date or click REFRESH DATA.');
             }
             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:#9ca3af;">' + emptyMsg + '</td></tr>';
         }

@@ -153,17 +153,6 @@ async def root():
     """Serve the main HTML page"""
     return FileResponse("static/index.html")
 
-@app.get("/api/health")
-async def health_check():
-    """Health check endpoint"""
-    next_run = scheduler.get_next_run_time()
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "next_scheduled_scrape": next_run.isoformat() if next_run else None
-    }
-
-
 @app.get("/api/vehicle-categories")
 async def get_vehicle_categories():
     """Get vehicle categories and models from config"""
