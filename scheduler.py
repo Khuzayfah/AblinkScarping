@@ -348,6 +348,21 @@ class ScraperScheduler:
         self.scheduler.shutdown()
         logger.info("Scheduler stopped")
 
+    def restart(self):
+        """Force-restart with a fresh BackgroundScheduler instance.
+
+        APScheduler can't re-start the same instance after shutdown — we have
+        to swap in a new one. Uses wait=False so we don't block on any
+        in-flight scrape (a scrape can take 5-10 min, which would stall any
+        caller that needs the scheduler back up quickly, e.g. /api/backup/restore).
+        """
+        try:
+            self.scheduler.shutdown(wait=False)
+        except Exception as e:
+            logger.warning(f"Scheduler shutdown during restart: {e}")
+        self.scheduler = BackgroundScheduler(timezone=SGT)
+        self.start()
+
     def get_next_run_time(self):
         """Get next scheduled run time"""
         job = self.scheduler.get_job('daily_scrape')
