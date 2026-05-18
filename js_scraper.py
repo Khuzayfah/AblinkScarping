@@ -369,10 +369,31 @@ def _extract_total_from_rsc(text: str) -> int:
 class SGCarMartJSScraper:
     """SGCarMart scraper using curl_cffi for Cloudflare bypass."""
 
-    def __init__(self, headless=True):
+    # Soft deadline for a full scrape run (active + sold + detail fetches).
+    # Without this, a single slow Cloudflare challenge or pagination loop
+    # could keep the scraper running for >30 min and block the next
+    # scheduled slot from firing (max_instances=1 on the cron job).
+    SCRAPE_DEADLINE_SECONDS = 15 * 60  # 15 minutes
+
+    def __init__(self, headless=True, deadline_seconds: int = None):
         self.url = config.COMMERCIAL_LISTING_URL
         self.target_vehicles = config.TARGET_VEHICLES
         self.headless = headless
+        import time as _t
+        self._start_time = _t.time()
+        self._deadline_seconds = deadline_seconds or self.SCRAPE_DEADLINE_SECONDS
+
+    def _deadline_exceeded(self) -> bool:
+        """True when the scrape has exceeded its time budget. Call this
+        between major loop iterations (keyword searches, detail fetches)
+        and bail out gracefully if True — partial data is better than a
+        nyangkut scrape that blocks the next slot."""
+        import time as _t
+        return (_t.time() - self._start_time) >= self._deadline_seconds
+
+    def _elapsed_seconds(self) -> int:
+        import time as _t
+        return int(_t.time() - self._start_time)
 
     def normalize(self, s: str) -> str:
         return re.sub(r'\s+', ' ', (s or '').upper().strip())
@@ -415,22 +436,82 @@ class SGCarMartJSScraper:
 
         return False
 
+    # Browser impersonations tried in order. If Cloudflare blocks Chrome
+    # fingerprint, retry with Firefox/Safari before giving up. Order matters:
+    # newest Chrome first (highest success rate on SGCarMart historically).
+    _IMPERSONATION_FALLBACKS = ('chrome', 'chrome120', 'firefox', 'safari17_0')
+
     def _fetch_page(self, session, url: str, description: str = '') -> Optional[str]:
-        """Fetch a page with curl_cffi, handling errors."""
+        """Fetch a page with curl_cffi, with retry + multi-impersonation
+        fallback so a single Cloudflare block doesn't kill the whole scrape.
+
+        Attempts:
+          1. Original session (whatever impersonation the caller created)
+          2-N. Fresh session with each fallback impersonation, exponential
+               backoff (2s, 4s, 8s) between tries.
+
+        Returns the page HTML on success, None if all attempts failed.
+        """
+        import time as _time
         try:
-            r = session.get(url, timeout=30)
-            if r.status_code == 200:
-                # Check for Cloudflare challenge
-                if 'Just a moment' in r.text[:500] or 'Verifying you are human' in r.text[:500]:
-                    logger.warning(f"  Cloudflare challenge on {description}")
+            from curl_cffi import requests as _curl
+        except ImportError:
+            _curl = None
+
+        last_err = None
+        attempts = 1 + len(self._IMPERSONATION_FALLBACKS)
+        for attempt in range(attempts):
+            use_session = session
+            if attempt > 0:
+                # Backoff before retry: 2s, 4s, 8s, 16s
+                _time.sleep(min(2 ** attempt, 16))
+                if _curl is None:
+                    break  # nothing we can do without curl_cffi for fresh session
+                impersonation = self._IMPERSONATION_FALLBACKS[attempt - 1]
+                try:
+                    use_session = _curl.Session(impersonate=impersonation)
+                    logger.info(
+                        f"  Retry {attempt}/{attempts - 1} for {description} "
+                        f"with impersonation={impersonation}"
+                    )
+                except Exception as e:
+                    last_err = f"session-create({impersonation}): {e}"
+                    continue
+
+            try:
+                r = use_session.get(url, timeout=30)
+                if r.status_code == 200:
+                    if 'Just a moment' in r.text[:500] or 'Verifying you are human' in r.text[:500]:
+                        last_err = 'cloudflare_challenge'
+                        logger.warning(
+                            f"  Cloudflare challenge on {description} "
+                            f"(try {attempt + 1}/{attempts})"
+                        )
+                        continue
+                    return r.text
+                last_err = f"HTTP {r.status_code}"
+                # 4xx (except 429) usually means a real not-found / bad URL —
+                # no point retrying with a different browser fingerprint.
+                if r.status_code != 429 and 400 <= r.status_code < 500:
+                    logger.warning(
+                        f"  HTTP {r.status_code} on {description} — not retrying"
+                    )
                     return None
-                return r.text
-            else:
-                logger.warning(f"  HTTP {r.status_code} on {description}")
-                return None
-        except Exception as e:
-            logger.error(f"  Fetch error on {description}: {e}")
-            return None
+                logger.warning(
+                    f"  HTTP {r.status_code} on {description} "
+                    f"(try {attempt + 1}/{attempts})"
+                )
+            except Exception as e:
+                last_err = str(e)
+                logger.warning(
+                    f"  Fetch error on {description} "
+                    f"(try {attempt + 1}/{attempts}): {e}"
+                )
+
+        logger.error(
+            f"  All {attempts} attempts failed for {description} — last: {last_err}"
+        )
+        return None
 
     def _scrape_search_keyword(self, session, keyword: str, dealer_map: Dict[int, str],
                                vtype: str = None, vtype_id: str = None, fuel: str = None) -> List[Dict[str, Any]]:
@@ -615,6 +696,13 @@ class SGCarMartJSScraper:
             seen_urls = {(l.get('link', '').split('?')[0]) for l in all_raw_items if l.get('link')}
 
             for keyword, vtype_id, fuel in KEYWORD_SEARCHES:
+                if self._deadline_exceeded():
+                    logger.warning(
+                        f"[DEADLINE] {self._elapsed_seconds()}s elapsed — "
+                        f"stopping keyword search early at '{keyword}'. "
+                        f"Partial active-listings data will be saved."
+                    )
+                    break
                 time.sleep(1.5)  # Rate limiting
                 keyword_items = self._scrape_search_keyword(session, keyword, global_dealer_map, vtype_id=vtype_id, fuel=fuel)
 
@@ -739,6 +827,12 @@ class SGCarMartJSScraper:
             seen_urls = set()
 
             for keyword, vtype_id, fuel in KEYWORD_SEARCHES:
+                if self._deadline_exceeded():
+                    logger.warning(
+                        f"[DEADLINE] {self._elapsed_seconds()}s elapsed — "
+                        f"stopping sold keyword search early at '{keyword}'."
+                    )
+                    break
                 time.sleep(1.5)
                 query = keyword.replace(' ', '+')
                 url = _build_search_url(query, vtype_id, fuel=fuel, avl='s')
@@ -849,7 +943,9 @@ class SGCarMartJSScraper:
 
                 # Only fetch detail page if we still need dealer name
                 # (detail pages for sold items show N.A. for depreciation, so skip dep fetch)
-                if not dealer_name and link and detail_fetch_count < MAX_DETAIL_FETCHES:
+                if (not dealer_name and link
+                        and detail_fetch_count < MAX_DETAIL_FETCHES
+                        and not self._deadline_exceeded()):
                     time.sleep(1.5)
                     detail_dealer, detail_dep = self._fetch_detail_page_dealer(session, link, global_dealer_map)
                     detail_fetch_count += 1
