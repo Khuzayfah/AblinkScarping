@@ -130,24 +130,40 @@ class ScraperScheduler:
 
             logger.info(f"  Active: {active_count} | Sold today: {comparison_sold} | SGCarMart sold: {avl_count}")
 
-            # Step 4: Send daily email report (only on success)
+            # Step 4: Send daily email report (only on success).
+            # Run on a separate daemon thread with a hard timeout so a hung
+            # SMTP server can't block the scheduler thread (which would
+            # delay the next scheduled scrape slot).
             if not scrape_error:
-                try:
-                    from email_service import send_daily_report, get_db_setting
-                    from database import SessionLocal as EmailDBSession
-                    email_db = EmailDBSession()
+                import threading
+
+                def _send_email_safely():
                     try:
-                        if get_db_setting(email_db, 'gmail_enabled', 'false') == 'true':
-                            date_str = now_sgt.strftime("%Y-%m-%d")
-                            ok, msg = send_daily_report(email_db, date_str)
-                            if ok:
-                                logger.info(f"[SCHEDULER] Email: {msg}")
-                            else:
-                                logger.warning(f"[SCHEDULER] Email skipped: {msg}")
-                    finally:
-                        email_db.close()
-                except Exception as email_err:
-                    logger.error(f"[SCHEDULER] Email error: {email_err}")
+                        from email_service import send_daily_report, get_db_setting
+                        from database import SessionLocal as EmailDBSession
+                        email_db = EmailDBSession()
+                        try:
+                            if get_db_setting(email_db, 'gmail_enabled', 'false') == 'true':
+                                date_str = now_sgt.strftime("%Y-%m-%d")
+                                ok, msg = send_daily_report(email_db, date_str)
+                                if ok:
+                                    logger.info(f"[SCHEDULER] Email: {msg}")
+                                else:
+                                    logger.warning(f"[SCHEDULER] Email skipped: {msg}")
+                        finally:
+                            email_db.close()
+                    except Exception as email_err:
+                        logger.error(f"[SCHEDULER] Email error: {email_err}")
+
+                email_thread = threading.Thread(target=_send_email_safely, daemon=True)
+                email_thread.start()
+                email_thread.join(timeout=120)  # 2 min max — typical SMTP < 30s
+                if email_thread.is_alive():
+                    logger.warning(
+                        "[SCHEDULER] Email thread still running after 120s — "
+                        "leaving it as daemon and continuing. Next scheduled slot "
+                        "will not be blocked."
+                    )
 
         except Exception as e:
             logger.error(f"[SCHEDULER] Scrape failed with error: {e}")
@@ -214,6 +230,23 @@ class ScraperScheduler:
             coalesce=True,
             max_instances=1,
         )
+
+        # Periodic SQLite WAL checkpoint to prevent unbounded -wal growth.
+        # Without this, long-running deployments can accumulate gigabytes of
+        # WAL pages that never get folded back into the main .db, eventually
+        # causing 'database is locked' errors on every endpoint. We run this
+        # daily at 03:00 SGT (off-peak, between sold-detection windows).
+        self.scheduler.add_job(
+            self._wal_checkpoint_job,
+            trigger=CronTrigger(hour=3, minute=0, timezone=SGT),
+            id='wal_checkpoint',
+            name='SQLite WAL Checkpoint',
+            replace_existing=True,
+            misfire_grace_time=3600,
+            coalesce=True,
+            max_instances=1,
+        )
+
         self.scheduler.start()
 
         next_run = self.get_next_run_time()
@@ -347,6 +380,38 @@ class ScraperScheduler:
         """Stop the scheduler"""
         self.scheduler.shutdown()
         logger.info("Scheduler stopped")
+
+    def _wal_checkpoint_job(self):
+        """Run PRAGMA wal_checkpoint(TRUNCATE) to fold pending WAL pages into
+        the main DB file and reset the -wal file to zero size. Without this,
+        a busy SQLite DB can leak unbounded WAL growth until disk fills."""
+        import sqlite3 as _s3
+        import os as _os
+        try:
+            db_url = config.DATABASE_URL
+            if db_url.startswith("sqlite:///"):
+                db_path = db_url[len("sqlite:///"):]
+            else:
+                db_path = "sgcarmart_data.db"
+            if not _os.path.exists(db_path):
+                return
+            wal_size_before = 0
+            wal_path = db_path + "-wal"
+            if _os.path.exists(wal_path):
+                wal_size_before = _os.path.getsize(wal_path)
+            conn = _s3.connect(db_path, timeout=30)
+            try:
+                cur = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                row = cur.fetchone()  # (busy, log, checkpointed)
+            finally:
+                conn.close()
+            wal_size_after = _os.path.getsize(wal_path) if _os.path.exists(wal_path) else 0
+            logger.info(
+                f"[WAL] Checkpoint result {row} | "
+                f"-wal {wal_size_before:,} -> {wal_size_after:,} bytes"
+            )
+        except Exception as e:
+            logger.warning(f"[WAL] Checkpoint failed: {e}")
 
     def restart(self):
         """Force-restart with a fresh BackgroundScheduler instance.
