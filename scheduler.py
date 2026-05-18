@@ -163,15 +163,42 @@ class ScraperScheduler:
         self._interval_days = interval_days
 
     def _make_trigger(self, hour: int, minute: int, interval_days: int):
-        """Create CronTrigger with SGT timezone."""
+        """Create CronTrigger with SGT timezone.
+
+        Daily mode (interval_days=1): fire 3x per day, every 8h starting from
+        the configured base hour. With the default hour=6, this gives
+        06:00 / 14:00 / 22:00 SGT — multiple chances per day so a single
+        Cloudflare block / outage doesn't lose a whole day of data.
+
+        Every-other-day mode (interval_days=2): single fire per scheduled day
+        at the configured hour (legacy behavior preserved).
+        """
         if interval_days == 2:
             return CronTrigger(day='*/2', hour=hour, minute=minute, timezone=SGT)
-        return CronTrigger(hour=hour, minute=minute, timezone=SGT)
+        h1 = hour % 24
+        h2 = (hour + 8) % 24
+        h3 = (hour + 16) % 24
+        hours_csv = f"{h1},{h2},{h3}"
+        return CronTrigger(hour=hours_csv, minute=minute, timezone=SGT)
+
+    def _scheduled_hours_csv(self) -> str:
+        """Comma-separated hours the scheduler fires at today (SGT). Used by
+        the startup catch-up logic to find the most recent slot that should
+        have fired."""
+        if self._interval_days == 2:
+            return str(self._hour % 24)
+        h1 = self._hour % 24
+        h2 = (self._hour + 8) % 24
+        h3 = (self._hour + 16) % 24
+        return f"{h1},{h2},{h3}"
 
     def start(self):
         """Start the scheduler"""
         trigger = self._make_trigger(self._hour, self._minute, self._interval_days)
-        interval_text = f"every {self._interval_days} day(s)"
+        if self._interval_days == 1:
+            interval_text = f"3x/day at {self._scheduled_hours_csv()}:{self._minute:02d} SGT"
+        else:
+            interval_text = f"every {self._interval_days} day(s) at {self._hour:02d}:{self._minute:02d} SGT"
 
         self.scheduler.add_job(
             self.scrape_job,
@@ -193,7 +220,7 @@ class ScraperScheduler:
         next_str = next_run.strftime('%Y-%m-%d %H:%M:%S %Z') if next_run else 'unknown'
         logger.info(f"========================================")
         logger.info(f"SCHEDULER STARTED")
-        logger.info(f"  Schedule: {interval_text} at {self._hour:02d}:{self._minute:02d} SGT")
+        logger.info(f"  Schedule: {interval_text}")
         logger.info(f"  Next run: {next_str}")
         logger.info(f"  Misfire grace: {MISFIRE_GRACE_SECONDS // 3600}h (catches up after restart)")
         logger.info(f"  Timezone: Asia/Singapore (SGT)")
@@ -221,11 +248,17 @@ class ScraperScheduler:
         self._schedule_startup_catchup_if_needed()
 
     def _schedule_startup_catchup_if_needed(self):
-        """If today's scheduled run was missed (container was down), schedule
-        a one-shot catch-up ~45 seconds after startup so the app finishes
-        booting first. Coolify restarts after the daily cron time were
-        silently dropping the whole day's scrape.
+        """If we've gone too long without a successful scrape (container down
+        across one or more scheduled slots), schedule a one-shot catch-up
+        ~45 seconds after startup so the app finishes booting first.
+
+        With 3x/day cadence (every 8h), we consider anything > 9h since the
+        last success as 'missed at least one slot' and fire catch-up.
         """
+        # Staleness threshold: 1h grace beyond the 8h cadence so we don't
+        # fire spuriously right after a normal scheduled run.
+        STALE_AFTER_HOURS = 9
+
         db = SessionLocal()
         try:
             row = db.query(AppSetting).filter(
@@ -239,17 +272,6 @@ class ScraperScheduler:
             db.close()
 
         now_sgt = datetime.now(SGT)
-        today_scheduled = now_sgt.replace(
-            hour=self._hour, minute=self._minute, second=0, microsecond=0
-        )
-
-        # Today's scheduled time hasn't passed yet — let the cron handle it.
-        if now_sgt < today_scheduled:
-            logger.info(
-                f"[CATCHUP] No catch-up needed — today's scheduled run "
-                f"({today_scheduled.strftime('%H:%M %Z')}) hasn't passed yet."
-            )
-            return
 
         needs_catchup = False
         reason = ""
@@ -266,13 +288,13 @@ class ScraperScheduler:
                     last_success = pytz.UTC.localize(last_success).astimezone(SGT)
                 else:
                     last_success = last_success.astimezone(SGT)
-                if last_success < today_scheduled:
+                age_hours = (now_sgt - last_success).total_seconds() / 3600
+                if age_hours >= STALE_AFTER_HOURS:
                     needs_catchup = True
-                    age_hours = (now_sgt - last_success).total_seconds() / 3600
                     reason = (
                         f"last success was {last_success.strftime('%Y-%m-%d %H:%M %Z')} "
-                        f"({age_hours:.1f}h ago) — before today's "
-                        f"{today_scheduled.strftime('%H:%M %Z')} window"
+                        f"({age_hours:.1f}h ago) — beyond {STALE_AFTER_HOURS}h staleness "
+                        f"threshold for 3x/day cadence"
                     )
             except Exception as e:
                 needs_catchup = True
@@ -316,7 +338,10 @@ class ScraperScheduler:
             job.reschedule(trigger=trigger)
             next_run = self.get_next_run_time()
             next_str = next_run.strftime('%Y-%m-%d %H:%M:%S %Z') if next_run else 'unknown'
-            logger.info(f"Schedule updated: every {interval_days} day(s) at {hour:02d}:{minute:02d} SGT | Next: {next_str}")
+            if interval_days == 1:
+                logger.info(f"Schedule updated: 3x/day at {self._scheduled_hours_csv()}:{minute:02d} SGT | Next: {next_str}")
+            else:
+                logger.info(f"Schedule updated: every {interval_days} day(s) at {hour:02d}:{minute:02d} SGT | Next: {next_str}")
 
     def stop(self):
         """Stop the scheduler"""
