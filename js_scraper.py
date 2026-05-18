@@ -290,13 +290,34 @@ def _build_dealer_map(text: str) -> Dict[int, str]:
 def _extract_listings_from_rsc(text: str) -> Tuple[List[Dict[str, Any]], Dict[int, str]]:
     """Extract all vehicle listings from Next.js RSC payload.
 
-    Returns (listings, dealer_map)
+    Returns (listings, dealer_map). If the RSC structure changes (SGCarMart
+    or Next.js upgrade), this returns 0 listings and logs a distinct
+    [STRUCTURE-CHANGE] warning so it's distinguishable from a real
+    empty-results page or a Cloudflare block (which would have already
+    returned None at the _fetch_page layer).
     """
     # Build dealer name mapping
     dealer_map = _build_dealer_map(text)
 
     # Find each listing by looking for link field with sgcarmart info URL
     link_prefix = BQ + 'link' + BQ + ':' + BQ + 'https://www.sgcarmart.com/used-cars/info/'
+
+    # Sanity check: if the listings page loaded but our RSC marker is
+    # nowhere to be found, the upstream payload structure probably changed.
+    # Log it loudly so we know to update the extraction regexes — otherwise
+    # we'd silently return 0 listings forever.
+    if link_prefix not in text:
+        # Look for any sgcarmart info URLs as a fallback signal — if those
+        # exist but our specific RSC field marker doesn't, structure changed.
+        if '/used-cars/info/' in text:
+            logger.warning(
+                "[STRUCTURE-CHANGE] HTML loaded and contains /used-cars/info/ "
+                "URLs but RSC link prefix not found. SGCarMart RSC payload "
+                "structure likely changed — extraction regexes need updating."
+            )
+        else:
+            # Genuinely empty / non-listing page — not a structure issue.
+            pass
 
     listings = []
     seen_urls = set()
@@ -481,11 +502,37 @@ class SGCarMartJSScraper:
             try:
                 r = use_session.get(url, timeout=30)
                 if r.status_code == 200:
-                    if 'Just a moment' in r.text[:500] or 'Verifying you are human' in r.text[:500]:
+                    head = r.text[:2000]
+                    # Known CF challenge patterns. The "NEW_PATTERN" branch
+                    # logs distinctly so we can grep logs and tell whether
+                    # the impersonation just kept failing vs whether CF
+                    # changed its UI (which means our fingerprints may need
+                    # updating).
+                    cf_old_patterns = (
+                        'Just a moment',
+                        'Verifying you are human',
+                    )
+                    cf_new_patterns = (
+                        'Sorry, you have been blocked',
+                        'Enable JavaScript and cookies to continue',
+                        'cf-error-details',
+                        'challenge-platform',
+                        '__cf_chl_',
+                        'Attention Required',
+                    )
+                    if any(p in head for p in cf_old_patterns):
                         last_err = 'cloudflare_challenge'
                         logger.warning(
                             f"  Cloudflare challenge on {description} "
                             f"(try {attempt + 1}/{attempts})"
+                        )
+                        continue
+                    if any(p in head for p in cf_new_patterns):
+                        last_err = 'cloudflare_new_pattern'
+                        logger.warning(
+                            f"  [CF-NEW-PATTERN] {description} matched a "
+                            f"new Cloudflare block pattern — impersonation "
+                            f"may need updating. (try {attempt + 1}/{attempts})"
                         )
                         continue
                     return r.text
