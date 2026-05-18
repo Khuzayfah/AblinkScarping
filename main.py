@@ -2011,9 +2011,18 @@ async def debug_test_browser():
 
 @app.get("/api/backup/download")
 async def download_backup():
-    """Download the SQLite database as a backup file"""
+    """Download the SQLite database as a self-contained backup file.
+
+    Uses SQLite's online backup API (via VACUUM INTO) to produce a
+    consistent snapshot — this works even while the live DB is being
+    written to, and produces a single .db file with no -wal/-shm
+    sidecars needed to read it back.
+    """
+    import os
+    import sqlite3
+    import tempfile
+
     db_url = config.DATABASE_URL
-    # Extract file path from sqlite URL (sqlite:///./path/to/db or sqlite:////abs/path)
     if db_url.startswith("sqlite:///"):
         db_path = db_url[len("sqlite:///"):]
     else:
@@ -2022,18 +2031,91 @@ async def download_backup():
     if not os.path.exists(db_path):
         raise HTTPException(status_code=404, detail="Database file not found")
 
+    # Stage the snapshot in a temp file next to the live DB (same FS) so
+    # SQLite can write to it and we can serve it. We do NOT touch the live
+    # file. VACUUM INTO produces a clean, defragged, self-contained copy.
+    db_dir = os.path.dirname(os.path.abspath(db_path)) or "."
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="backup_", suffix=".db", dir=db_dir)
+    os.close(tmp_fd)
+    try:
+        os.remove(tmp_path)  # VACUUM INTO requires the destination not to exist
+    except OSError:
+        pass
+
+    try:
+        src = sqlite3.connect(db_path)
+        try:
+            # Make sure any pending WAL pages are folded into the main file
+            # logically before we snapshot. (VACUUM INTO ignores WAL on the
+            # destination, but checkpointing makes the source state cleaner.)
+            try:
+                src.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.OperationalError:
+                pass  # Not in WAL mode — that's fine.
+
+            # Quote the path for SQL safely (escape single quotes).
+            quoted = tmp_path.replace("'", "''")
+            src.execute(f"VACUUM INTO '{quoted}'")
+        finally:
+            src.close()
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise HTTPException(status_code=500, detail=f"Failed to snapshot DB: {e}")
+
     filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+
+    # FileResponse will stream the file; we delete the temp file via a
+    # BackgroundTask after the response is sent so we don't ship a phantom
+    # file on disk.
+    from starlette.background import BackgroundTask
+
+    def _cleanup():
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
     return FileResponse(
-        path=db_path,
+        path=tmp_path,
         media_type="application/octet-stream",
-        filename=filename
+        filename=filename,
+        background=BackgroundTask(_cleanup),
     )
 
 
 @app.post("/api/backup/restore")
 async def restore_backup(file: UploadFile = File(...)):
-    """Restore database from an uploaded backup file"""
-    if not file.filename.endswith(".db"):
+    """Restore database from an uploaded backup file.
+
+    Robust restore flow that addresses past failures where the uploaded DB
+    was written to disk but the live app kept serving the old data:
+
+    1. Reject non-.db filenames early.
+    2. Save the upload to a temp path (atomic-ish, doesn't touch live DB yet).
+    3. Validate the uploaded file is a real SQLite DB with expected tables —
+       prevents overwriting live data with garbage.
+    4. Stop the scheduler so no scrape writes during the swap.
+    5. Dispose the SQLAlchemy engine — closes all pooled connections so they
+       can't keep reading old pages from the file we're about to replace.
+    6. Delete WAL/SHM sidecar files belonging to the OLD database — leaving
+       them behind causes the new file to be read as old-data-plus-WAL,
+       which is exactly the 'data tidak berubah' symptom.
+    7. Move the temp file into place.
+    8. Re-run init_db() so backups from older schemas get the new tables /
+       columns the current code expects (year_min, listing_cache, etc.).
+    9. Restart the scheduler — its own startup catch-up logic handles
+       re-firing a scrape if the restored DB is stale.
+    """
+    import os
+    import shutil
+    import sqlite3
+    import tempfile
+
+    if not file.filename or not file.filename.lower().endswith(".db"):
         raise HTTPException(status_code=400, detail="File harus berformat .db (SQLite backup)")
 
     db_url = config.DATABASE_URL
@@ -2041,26 +2123,124 @@ async def restore_backup(file: UploadFile = File(...)):
         db_path = db_url[len("sqlite:///"):]
     else:
         db_path = "sgcarmart_data.db"
+    db_path = os.path.abspath(db_path)
+    db_dir = os.path.dirname(db_path) or "."
 
-    # Backup current db before overwrite
-    if os.path.exists(db_path):
-        backup_path = db_path + ".before_restore"
-        import shutil
-        shutil.copy2(db_path, backup_path)
-
-    # Write uploaded file
-    contents = await file.read()
-    with open(db_path, "wb") as f:
-        f.write(contents)
-
-    # Restart scheduler so it picks up new db connections
+    # 1+2. Stream the upload to a temp file in the SAME directory (so we can
+    # os.replace atomically on the same filesystem).
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix=".restore_", suffix=".db", dir=db_dir)
+    written = 0
     try:
-        scheduler.stop()
-        scheduler.start()
-    except Exception:
-        pass
+        with os.fdopen(tmp_fd, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1 MB chunks
+                if not chunk:
+                    break
+                out.write(chunk)
+                written += len(chunk)
 
-    return {"success": True, "message": f"Database berhasil di-restore ({len(contents):,} bytes). Refresh halaman."}
+        if written == 0:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+        # 3. Validate it's a real SQLite DB with our expected tables.
+        try:
+            conn = sqlite3.connect(tmp_path)
+            try:
+                cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = {row[0] for row in cur.fetchall()}
+            finally:
+                conn.close()
+        except sqlite3.DatabaseError as e:
+            raise HTTPException(status_code=400, detail=f"File is not a valid SQLite database: {e}")
+
+        required = {"vehicle_listings"}  # the core table — others get init_db'd later
+        missing = required - tables
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Backup file is missing required tables: {sorted(missing)}. "
+                       f"Found tables: {sorted(tables)}"
+            )
+
+        # 4. Stop scheduler so no scrape writes during the swap.
+        try:
+            scheduler.stop()
+            logger.info("[RESTORE] Scheduler stopped for restore")
+        except Exception as e:
+            logger.warning(f"[RESTORE] Could not stop scheduler cleanly: {e}")
+
+        # 5. Dispose engine — closes all pooled connections to the OLD file.
+        # Without this, new requests would be served from connections still
+        # pinned to the OLD file's pages.
+        try:
+            from database import engine as _engine
+            _engine.dispose()
+            logger.info("[RESTORE] SQLAlchemy engine disposed")
+        except Exception as e:
+            logger.warning(f"[RESTORE] engine.dispose() warning: {e}")
+
+        # 6. Snapshot current DB + sidecar files before overwriting.
+        # 7. Atomically move the new file into place.
+        if os.path.exists(db_path):
+            try:
+                shutil.copy2(db_path, db_path + ".before_restore")
+            except Exception as e:
+                logger.warning(f"[RESTORE] Could not snapshot old DB: {e}")
+
+        # Delete WAL/SHM that belonged to the OLD database — leaving them
+        # behind makes SQLite splice old WAL pages onto the new file.
+        for sidecar_ext in ("-wal", "-shm", "-journal"):
+            sidecar = db_path + sidecar_ext
+            if os.path.exists(sidecar):
+                try:
+                    os.remove(sidecar)
+                    logger.info(f"[RESTORE] Removed sidecar {sidecar}")
+                except Exception as e:
+                    logger.warning(f"[RESTORE] Could not remove sidecar {sidecar}: {e}")
+
+        os.replace(tmp_path, db_path)  # atomic on same filesystem
+        tmp_path = None  # already moved, don't double-clean
+        logger.info(f"[RESTORE] Wrote {written:,} bytes to {db_path}")
+
+        # 8. Apply current schema (adds any tables/columns the backup is
+        # missing — backups from older code can still be restored).
+        try:
+            from database import init_db as _init
+            _init()
+            logger.info("[RESTORE] init_db() applied — schema is current")
+        except Exception as e:
+            logger.error(f"[RESTORE] init_db() failed: {e}")
+
+        # 9. Restart scheduler. Its own startup catch-up will fire a scrape
+        # immediately if the restored DB is stale (>9h since last success).
+        try:
+            scheduler.start()
+            logger.info("[RESTORE] Scheduler restarted")
+        except Exception as e:
+            logger.error(f"[RESTORE] Could not restart scheduler: {e}")
+
+        return {
+            "success": True,
+            "bytes_written": written,
+            "tables_found": sorted(tables),
+            "message": (
+                f"Database berhasil di-restore ({written:,} bytes). "
+                f"Engine pool sudah di-dispose dan WAL/SHM lama dihapus — "
+                f"refresh halaman untuk lihat data baru."
+            )
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[RESTORE] Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
+    finally:
+        # Clean up temp file if we bailed before swapping it in.
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
 
 
 # ============================================================
