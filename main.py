@@ -275,7 +275,11 @@ async def get_status(db: Session = Depends(get_db)):
         "last_scrape_error": last_error,
         "scrape_healthy": last_error is None,
         "schedule": {"hour": hour, "minute": minute, "interval_days": interval_days},
-        "schedule_display": f"{hour:02d}:{minute:02d} SGT (every {interval_days} day{'s' if interval_days > 1 else ''})",
+        "schedule_display": (
+            f"3x/day at {hour % 24:02d}:{minute:02d}, {(hour + 8) % 24:02d}:{minute:02d}, {(hour + 16) % 24:02d}:{minute:02d} SGT"
+            if interval_days == 1
+            else f"{hour:02d}:{minute:02d} SGT (every {interval_days} days)"
+        ),
         "next_scheduled_scrape": next_run.isoformat() if next_run else None,
         "next_run_display": next_run_display,
         "timezone": "Asia/Singapore (SGT)"
@@ -330,7 +334,11 @@ async def update_schedule(
 
     return {
         "schedule": {"hour": hour, "minute": minute, "interval_days": interval_days},
-        "schedule_display": f"{hour:02d}:{minute:02d} (every {interval_days} day{'s' if interval_days > 1 else ''})"
+        "schedule_display": (
+            f"3x/day at {hour % 24:02d}:{minute:02d}, {(hour + 8) % 24:02d}:{minute:02d}, {(hour + 16) % 24:02d}:{minute:02d} SGT"
+            if interval_days == 1
+            else f"{hour:02d}:{minute:02d} (every {interval_days} days)"
+        )
     }
 
 @app.get("/api/listings")
