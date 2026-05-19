@@ -110,7 +110,10 @@ def detect_and_log_sold(force=False):
     """
     db = SessionLocal()
     try:
-        today = datetime.now().date()
+        # Use SGT — container TZ is UTC on Coolify, which would make 'today'
+        # roll over at 08:00 SGT instead of midnight SGT and break sold detection.
+        from config import today_sgt as _today_sgt
+        today = _today_sgt()
         today_start = datetime.combine(today, datetime.min.time())
         today_end = today_start + timedelta(days=1)
 

@@ -1,8 +1,31 @@
 """Configuration settings for the SGCarMart scraper"""
 import os
+from datetime import datetime
+import pytz
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+# === Singapore Time helpers ===
+# SGCarMart is a Singapore site and all user-facing dates are SGT (UTC+8).
+# But Coolify Docker containers default to UTC, so datetime.now() returns
+# UTC-based timestamps — leading to scrapes at 06:15 SGT being stored as
+# May 18 22:15 (UTC date = May 18), confusing sold detection that thinks
+# "today" is May 19. Always use now_sgt() / today_sgt() for DB writes and
+# date arithmetic to keep everything in SGT regardless of container TZ.
+_SGT = pytz.timezone('Asia/Singapore')
+
+
+def now_sgt() -> datetime:
+    """Naive SGT datetime — drops tzinfo so SQLAlchemy stores the wall-clock
+    value as-is without re-interpreting it."""
+    return datetime.now(_SGT).replace(tzinfo=None)
+
+
+def today_sgt():
+    """Today's date in SGT (date object)."""
+    return now_sgt().date()
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sgcarmart_data.db")

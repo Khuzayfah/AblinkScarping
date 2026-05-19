@@ -104,7 +104,8 @@ class ScraperScheduler:
             else:
                 log.status = status
             if update_last_scrape:
-                log.last_scrape_at = datetime.now()
+                from config import now_sgt as _now_sgt
+                log.last_scrape_at = _now_sgt()
 
             if last_error is not None:
                 _set_app_setting(db, 'last_scrape_error', last_error)
