@@ -245,7 +245,7 @@ async def health_check():
     except Exception as e:
         out["disk_error"] = str(e)
 
-    # Consecutive failure count (alerts if >= 3)
+    # Consecutive failure count (alerts if >= 3) + validation warnings
     try:
         db = SessionLocal()
         try:
@@ -255,6 +255,19 @@ async def health_check():
             if n >= 3:
                 out["healthy"] = False
                 out["warnings"].append(f"{n} consecutive scrape failures")
+            # Surface data-quality warnings from the last scrape's validation
+            val_raw = _get_app_setting(db, 'last_validation_warnings', '')
+            if val_raw:
+                import json as _json
+                try:
+                    v_list = _json.loads(val_raw)
+                    if v_list:
+                        out["last_validation_warnings"] = v_list
+                        out["healthy"] = False
+                        for v in v_list:
+                            out["warnings"].append(f"data-quality: {v}")
+                except Exception:
+                    pass
         finally:
             db.close()
     except Exception:
@@ -384,18 +397,27 @@ async def get_status(db: Session = Depends(get_db)):
     # succeeded vs. silently failed (e.g. blocked by Cloudflare).
     err_row = db.query(AppSetting).filter(AppSetting.key == "last_scrape_error").first()
     succ_row = db.query(AppSetting).filter(AppSetting.key == "last_successful_scrape_at").first()
+    val_row = db.query(AppSetting).filter(AppSetting.key == "last_validation_warnings").first()
     last_error = err_row.value if err_row and err_row.value else None
     last_success_at = succ_row.value if succ_row and succ_row.value else None
+    validation_warnings = []
+    if val_row and val_row.value:
+        try:
+            import json as _json
+            validation_warnings = _json.loads(val_row.value) or []
+        except Exception:
+            pass
 
     return {
         "status": log.status,
         "last_scrape_at": log.last_scrape_at.strftime("%Y-%m-%d %H:%M:%S") if log.last_scrape_at else None,
         "last_successful_scrape_at": last_success_at,
         "last_scrape_error": last_error,
-        "scrape_healthy": last_error is None,
+        "validation_warnings": validation_warnings,
+        "scrape_healthy": last_error is None and len(validation_warnings) == 0,
         "schedule": {"hour": hour, "minute": minute, "interval_days": interval_days},
         "schedule_display": (
-            f"3x/day at {hour % 24:02d}:{minute:02d}, {(hour + 8) % 24:02d}:{minute:02d}, {(hour + 16) % 24:02d}:{minute:02d} SGT"
+            f"2x/day at {hour % 24:02d}:{minute:02d}, {(hour + 12) % 24:02d}:{minute:02d} SGT"
             if interval_days == 1
             else f"{hour:02d}:{minute:02d} SGT (every {interval_days} days)"
         ),
@@ -454,7 +476,7 @@ async def update_schedule(
     return {
         "schedule": {"hour": hour, "minute": minute, "interval_days": interval_days},
         "schedule_display": (
-            f"3x/day at {hour % 24:02d}:{minute:02d}, {(hour + 8) % 24:02d}:{minute:02d}, {(hour + 16) % 24:02d}:{minute:02d} SGT"
+            f"2x/day at {hour % 24:02d}:{minute:02d}, {(hour + 12) % 24:02d}:{minute:02d} SGT"
             if interval_days == 1
             else f"{hour:02d}:{minute:02d} (every {interval_days} days)"
         )

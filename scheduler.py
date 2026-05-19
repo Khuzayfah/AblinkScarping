@@ -34,6 +34,96 @@ def _get_app_setting(db, key: str, default: str = "") -> str:
     return row.value if (row and row.value is not None) else default
 
 
+def _validate_scrape_results(results, active_count: int) -> list:
+    """Post-scrape sanity checks. Returns a list of warning strings.
+
+    Catches the silent partial-scrape mode where the scraper succeeds
+    (returns some data) but the data is incomplete or malformed —
+    e.g. Cloudflare degraded the response, structure-change partially
+    broke extraction, or deadline cut the scrape short.
+
+    Checks:
+      A. Row-count vs the last successful scrape — flag if dropped >40%
+         (single keyword that returned 0 due to CF can easily cost 30-50%)
+      B. Schema sanity on a sample — make_model not empty, URL well-formed
+      C. Duplicate URL ratio — if >5% of rows share the same URL, something
+         is wrong (typically a parsing bug returning the same listing N times)
+    """
+    warnings_out = []
+    if not results:
+        return ["No results returned from active scrape"]
+
+    # === A. Row-count vs previous successful scrape ===
+    try:
+        db = SessionLocal()
+        try:
+            from sqlalchemy import text as _txt
+            # Latest distinct scrape_date STRICTLY before this run (use date
+            # bucket so the value is stable as today's rows trickle in).
+            row = db.execute(_txt(
+                "SELECT date(scrape_date) d, COUNT(*) c "
+                "FROM vehicle_listings "
+                "WHERE date(scrape_date) < date('now', 'localtime') "
+                "GROUP BY date(scrape_date) "
+                "ORDER BY d DESC LIMIT 1"
+            )).fetchone()
+        finally:
+            db.close()
+        if row and row[1]:
+            prev_count = int(row[1])
+            if prev_count >= 50:  # only meaningful for non-tiny baselines
+                drop_pct = (prev_count - active_count) * 100.0 / prev_count
+                if drop_pct >= 40:
+                    warnings_out.append(
+                        f"Row count dropped {drop_pct:.0f}%: {prev_count} -> "
+                        f"{active_count} (date {row[0]} vs now). Likely "
+                        f"partial scrape — Cloudflare degraded, structure-change, "
+                        f"or deadline-cut."
+                    )
+    except Exception as e:
+        warnings_out.append(f"Row-count comparison failed: {e}")
+
+    # === B. Schema sanity on a sample ===
+    bad_model = 0
+    bad_url = 0
+    sample_size = min(50, len(results))
+    for r in results[:sample_size]:
+        mm = (r.get('make_model') or '').strip()
+        if not mm or len(mm) < 3:
+            bad_model += 1
+        url = (r.get('listing_url') or '').strip()
+        if url and ('sgcarmart.com/used-cars/info/' not in url):
+            bad_url += 1
+    if bad_model > sample_size * 0.1:
+        warnings_out.append(
+            f"{bad_model}/{sample_size} sampled rows have empty/garbage "
+            f"make_model — RSC extractor may be broken"
+        )
+    if bad_url > sample_size * 0.1:
+        warnings_out.append(
+            f"{bad_url}/{sample_size} sampled rows have malformed listing_url"
+        )
+
+    # === C. Duplicate URL ratio ===
+    urls = [(r.get('listing_url') or '').split('?')[0] for r in results
+            if r.get('listing_url')]
+    if urls:
+        from collections import Counter
+        cnt = Counter(urls)
+        # Count rows whose URL appears more than once
+        dup_rows = sum(c for c in cnt.values() if c > 1)
+        dup_pct = dup_rows * 100.0 / len(urls)
+        if dup_pct > 5:
+            top_dups = cnt.most_common(3)
+            warnings_out.append(
+                f"{dup_pct:.1f}% duplicate URLs in scrape results "
+                f"(top: {top_dups}) — parser likely returning same listing "
+                f"multiple times"
+            )
+
+    return warnings_out
+
+
 def _fire_failure_webhook(consecutive_failures: int, error: str):
     """POST a failure alert to WEBHOOK_URL env var (if set). Designed to be
     compatible with Slack/Discord/n8n/Make webhook formats.
@@ -143,6 +233,26 @@ class ScraperScheduler:
             active_count = len(results) if results else 0
             logger.info(f"[SCHEDULER] Active listings: {active_count} vehicles found")
 
+            # === DATA VALIDATION ===
+            # Three checks: row-count vs last scrape, schema sanity, duplicates.
+            # Catches partial scrapes that "succeed" with corrupted/incomplete
+            # data — would otherwise go unnoticed until user opens dashboard.
+            validation_warnings = _validate_scrape_results(results, active_count)
+            for w in validation_warnings:
+                logger.warning(f"[VALIDATE] {w}")
+            # Persist for /api/health + /api/status to surface to dashboard.
+            try:
+                _vdb = SessionLocal()
+                try:
+                    import json as _json
+                    _set_app_setting(_vdb, 'last_validation_warnings',
+                                     _json.dumps(validation_warnings))
+                    _vdb.commit()
+                finally:
+                    _vdb.close()
+            except Exception as e:
+                logger.warning(f"[VALIDATE] Could not persist warnings: {e}")
+
             # Step 2: Detect sold by comparison (previous vs current) → sold_log
             if results:
                 logger.info("[SCHEDULER] Step 2/3: Detecting sold vehicles (comparison)...")
@@ -251,10 +361,12 @@ class ScraperScheduler:
     def _make_trigger(self, hour: int, minute: int, interval_days: int):
         """Create CronTrigger with SGT timezone.
 
-        Daily mode (interval_days=1): fire 3x per day, every 8h starting from
-        the configured base hour. With the default hour=6, this gives
-        06:00 / 14:00 / 22:00 SGT — multiple chances per day so a single
-        Cloudflare block / outage doesn't lose a whole day of data.
+        Daily mode (interval_days=1): fire 2x per day, every 12h starting
+        from the configured base hour. With the default hour=6, this gives
+        06:00 / 18:00 SGT — morning + evening pattern. Two slots is the
+        sweet spot between "redundancy if one fails" and "low enough request
+        rate to not draw Cloudflare attention". Three slots was more
+        aggressive than needed for our small target-vehicle scope.
 
         Every-other-day mode (interval_days=2): single fire per scheduled day
         at the configured hour (legacy behavior preserved).
@@ -262,9 +374,8 @@ class ScraperScheduler:
         if interval_days == 2:
             return CronTrigger(day='*/2', hour=hour, minute=minute, timezone=SGT)
         h1 = hour % 24
-        h2 = (hour + 8) % 24
-        h3 = (hour + 16) % 24
-        hours_csv = f"{h1},{h2},{h3}"
+        h2 = (hour + 12) % 24
+        hours_csv = f"{h1},{h2}"
         return CronTrigger(hour=hours_csv, minute=minute, timezone=SGT)
 
     def _scheduled_hours_csv(self) -> str:
@@ -274,15 +385,14 @@ class ScraperScheduler:
         if self._interval_days == 2:
             return str(self._hour % 24)
         h1 = self._hour % 24
-        h2 = (self._hour + 8) % 24
-        h3 = (self._hour + 16) % 24
-        return f"{h1},{h2},{h3}"
+        h2 = (self._hour + 12) % 24
+        return f"{h1},{h2}"
 
     def start(self):
         """Start the scheduler"""
         trigger = self._make_trigger(self._hour, self._minute, self._interval_days)
         if self._interval_days == 1:
-            interval_text = f"3x/day at {self._scheduled_hours_csv()}:{self._minute:02d} SGT"
+            interval_text = f"2x/day at {self._scheduled_hours_csv()}:{self._minute:02d} SGT"
         else:
             interval_text = f"every {self._interval_days} day(s) at {self._hour:02d}:{self._minute:02d} SGT"
 
@@ -373,12 +483,12 @@ class ScraperScheduler:
         across one or more scheduled slots), schedule a one-shot catch-up
         ~45 seconds after startup so the app finishes booting first.
 
-        With 3x/day cadence (every 8h), we consider anything > 9h since the
-        last success as 'missed at least one slot' and fire catch-up.
+        With 2x/day cadence (every 12h), we consider anything > 13h since
+        the last success as 'missed at least one slot' and fire catch-up.
         """
-        # Staleness threshold: 1h grace beyond the 8h cadence so we don't
+        # Staleness threshold: 1h grace beyond the 12h cadence so we don't
         # fire spuriously right after a normal scheduled run.
-        STALE_AFTER_HOURS = 9
+        STALE_AFTER_HOURS = 13
 
         db = SessionLocal()
         try:
@@ -415,7 +525,7 @@ class ScraperScheduler:
                     reason = (
                         f"last success was {last_success.strftime('%Y-%m-%d %H:%M %Z')} "
                         f"({age_hours:.1f}h ago) — beyond {STALE_AFTER_HOURS}h staleness "
-                        f"threshold for 3x/day cadence"
+                        f"threshold for 2x/day cadence"
                     )
             except Exception as e:
                 needs_catchup = True
@@ -460,7 +570,7 @@ class ScraperScheduler:
             next_run = self.get_next_run_time()
             next_str = next_run.strftime('%Y-%m-%d %H:%M:%S %Z') if next_run else 'unknown'
             if interval_days == 1:
-                logger.info(f"Schedule updated: 3x/day at {self._scheduled_hours_csv()}:{minute:02d} SGT | Next: {next_str}")
+                logger.info(f"Schedule updated: 2x/day at {self._scheduled_hours_csv()}:{minute:02d} SGT | Next: {next_str}")
             else:
                 logger.info(f"Schedule updated: every {interval_days} day(s) at {hour:02d}:{minute:02d} SGT | Next: {next_str}")
 
