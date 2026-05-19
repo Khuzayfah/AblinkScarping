@@ -12,7 +12,7 @@ class VehicleListing(Base):
     __tablename__ = "vehicle_listings"
     
     id = Column(Integer, primary_key=True, index=True)
-    scrape_date = Column(DateTime, default=datetime.now, index=True)
+    scrape_date = Column(DateTime, default=config.now_sgt, index=True)
     make_model = Column(String(200), index=True)
     registered_year = Column(Integer)
     depreciation = Column(String(100))
@@ -41,7 +41,7 @@ class DailyReport(Base):
     __tablename__ = "daily_reports"
     
     id = Column(Integer, primary_key=True, index=True)
-    report_date = Column(DateTime, default=datetime.now, index=True)
+    report_date = Column(DateTime, default=config.now_sgt, index=True)
     total_listings = Column(Integer)
     vehicles_tracked = Column(String(500))
     highest_price = Column(Float)
@@ -68,7 +68,7 @@ class ScrapeLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     last_scrape_at = Column(DateTime)
     status = Column(String(20), default="Ready")  # Ready, Scraping
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=config.now_sgt)
 
 
 class AppSetting(Base):
@@ -92,7 +92,7 @@ class SoldLog(Base):
     dealer_name = Column(String(200))
     price = Column(Float)
     listing_url = Column(Text)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=config.now_sgt)
 
     def to_dict(self):
         return {
@@ -112,14 +112,14 @@ class SgcarmartSold(Base):
     __tablename__ = "sgcarmart_sold"
 
     id = Column(Integer, primary_key=True, index=True)
-    scrape_date = Column(DateTime, default=datetime.now, index=True)
+    scrape_date = Column(DateTime, default=config.now_sgt, index=True)
     make_model = Column(String(200), index=True)
     year_registered = Column(Integer)
     depreciation = Column(String(100))
     dealer_name = Column(String(200))
     price = Column(Float)
     listing_url = Column(Text)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=config.now_sgt)
 
     def to_dict(self):
         return {
@@ -149,7 +149,7 @@ class ListingCache(Base):
     depreciation = Column(String(100))
     dealer_name = Column(String(200))
     price = Column(Float)
-    last_seen = Column(DateTime, default=datetime.now)  # last time seen as active
+    last_seen = Column(DateTime, default=config.now_sgt)  # last time seen as active
 
 
 # Create engine and session

@@ -1498,8 +1498,12 @@ class SGCarMartJSScraper:
         """
         db = SessionLocal()
         try:
-            # Remove existing listings for today to prevent duplicates
-            today = datetime.now().date()
+            # Remove existing listings for today to prevent duplicates.
+            # Use SGT — datetime.now() in a Coolify UTC container would mean
+            # 'today' is UTC, and a scrape at 06:15 SGT would be stored under
+            # the previous SGT day, breaking dedup + sold-comparison.
+            from config import today_sgt as _today_sgt, now_sgt as _now_sgt
+            today = _today_sgt()
             tomorrow = today + timedelta(days=1)
             deleted = db.query(VehicleListing).filter(
                 and_(
@@ -1510,7 +1514,7 @@ class SGCarMartJSScraper:
             if deleted:
                 logger.info(f"[DEDUP] Cleared {deleted} existing listings for {today} before re-saving")
 
-            now = datetime.now()
+            now = _now_sgt()
             for item in data:
                 db.add(VehicleListing(
                     scrape_date=now,
@@ -1540,7 +1544,8 @@ class SGCarMartJSScraper:
         so we can look it up later when SGCarMart marks it as sold
         (sold pages show N.A. for depreciation and remove price).
         """
-        now = datetime.now()
+        from config import now_sgt as _now_sgt
+        now = _now_sgt()
         updated = 0
         inserted = 0
         try:

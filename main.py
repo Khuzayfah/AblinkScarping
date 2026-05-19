@@ -7,6 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from datetime import datetime, timedelta
+# SGT helpers — container TZ is UTC on Coolify, so datetime.now() returns
+# UTC and breaks 'today' arithmetic. Use now_sgt() / today_sgt() consistently
+# for DB writes and date comparisons.
+from config import now_sgt, today_sgt
 from typing import List, Optional, Dict, Any
 from collections import defaultdict
 import os
@@ -341,7 +345,7 @@ async def manual_scrape(background_tasks: BackgroundTasks, db: Session = Depends
                 lg = d.query(ScrapeLog).first()
                 if lg:
                     lg.status = "Ready"
-                    lg.last_scrape_at = datetime.now()
+                    lg.last_scrape_at = now_sgt()
                     d.commit()
                 # Update health fields so /api/status reflects real outcome
                 if scrape_error:
@@ -759,7 +763,7 @@ async def get_daily_report(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     else:
-        target_date = datetime.now().date()
+        target_date = today_sgt()
 
     next_date = target_date + timedelta(days=1)
 
@@ -1025,7 +1029,7 @@ async def export_csv(date: Optional[str] = None, db: Session = Depends(get_db)):
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format")
     else:
-        target_date = datetime.now().date()
+        target_date = today_sgt()
     
     daily_rows = _get_daily_table_for_date(target_date, db)
     csv_file = ExportService.export_daily_table_csv(daily_rows)
@@ -1046,7 +1050,7 @@ async def export_excel(date: Optional[str] = None, db: Session = Depends(get_db)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format")
     else:
-        target_date = datetime.now().date()
+        target_date = today_sgt()
     
     daily_rows = _get_daily_table_for_date(target_date, db)
     excel_file = ExportService.export_daily_table_excel(daily_rows)
@@ -1067,7 +1071,7 @@ async def export_pdf(date: Optional[str] = None, db: Session = Depends(get_db)):
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format")
     else:
-        target_date = datetime.now().date()
+        target_date = today_sgt()
     
     daily_rows = _get_daily_table_for_date(target_date, db)
     pdf_file = ExportService.export_daily_table_pdf(daily_rows, f"SGCarMart Daily Report - {target_date}")
@@ -1279,7 +1283,7 @@ def _get_depreciation_data(source: str, date: Optional[str], db, days: Optional[
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     else:
-        target_date = datetime.now().date()
+        target_date = today_sgt()
         next_date = target_date + timedelta(days=1)
 
     # Use raw sqlite3 to avoid the SQLAlchemy 2.0 DateTime processor bug that
@@ -1303,7 +1307,7 @@ def _get_depreciation_data(source: str, date: Optional[str], db, days: Optional[
     try:
         if source == "sold":
             if days:
-                cutoff_str = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+                cutoff_str = (now_sgt() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
                 raw_rows = conn.execute(
                     "SELECT make_model, depreciation, listing_url, year_registered, price, dealer_name "
                     "FROM sgcarmart_sold WHERE scrape_date >= ?",
@@ -1687,7 +1691,7 @@ async def dashboard_summary(db: Session = Depends(get_db)):
     compare_days = int(cfg.get("compare_days", 7) or 7)
     year_min = cfg.get("year_min")
     year_max = cfg.get("year_max")
-    today = datetime.now().date()
+    today = today_sgt()
     compare_date = today - timedelta(days=compare_days)
 
     cur_agg, cur_date = _aggregate_active_snapshot(db, today, year_min, year_max)
@@ -2668,7 +2672,7 @@ async def v1_active_listings(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     else:
-        target_date = datetime.now().date()
+        target_date = today_sgt()
     next_date = target_date + timedelta(days=1)
 
     query = db.query(VehicleListing).filter(
@@ -2710,8 +2714,8 @@ async def v1_sold_listings(
     """v1: Sold vehicles detected by comparing consecutive daily scrapes"""
     limit = min(limit, 1000)
     try:
-        fd = datetime.strptime(from_date, "%Y-%m-%d") if from_date else datetime.now() - timedelta(days=30)
-        td = datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1) if to_date else datetime.now()
+        fd = datetime.strptime(from_date, "%Y-%m-%d") if from_date else now_sgt() - timedelta(days=30)
+        td = datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1) if to_date else now_sgt()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
@@ -2757,7 +2761,7 @@ async def v1_daily_report(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     else:
-        target_date = datetime.now().date()
+        target_date = today_sgt()
     next_date = target_date + timedelta(days=1)
 
     sold_rows = db.query(SoldLog).filter(
@@ -2871,7 +2875,7 @@ async def v1_trigger_scrape(db: Session = Depends(get_db)):
             with SessionLocal() as s:
                 l = _ensure_scrape_log(s)
                 l.status = "Ready"
-                l.last_scrape_at = datetime.now()
+                l.last_scrape_at = now_sgt()
                 s.commit()
         except Exception as e:
             logger.error(f"[v1/scrape] Error: {e}")
